@@ -1,4 +1,4 @@
-name: Deploy Naver route proxy
+name: Deploy Naver Maps route proxy
 
 on:
   push:
@@ -27,6 +27,6 @@ jobs:
             NAVER_MAP_CLIENT_SECRET
             ALLOWED_ORIGIN
         env:
-          NAVER_MAP_CLIENT_ID: ${{ secrets.NAVER_MAP_CLIENT_ID }}
-          NAVER_MAP_CLIENT_SECRET: ${{ secrets.NAVER_MAP_CLIENT_SECRET }}
+          NAVER_MAP_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_MAP_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
           ALLOWED_ORIGIN: ${{ secrets.ALLOWED_ORIGIN }}
