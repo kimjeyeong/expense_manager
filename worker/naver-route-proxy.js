@@ -53,13 +53,25 @@ async function places(url, origin, env) {
   if (!env.NAVER_SEARCH_CLIENT_ID || !env.NAVER_SEARCH_CLIENT_SECRET) return json({ error: '네이버 장소검색 인증키가 설정되지 않았습니다.' }, 500, origin, env);
   try {
     const searchUrl = new URL('https://naverapihub.apigw.ntruss.com/search/v1/local');
-    searchUrl.search = new URLSearchParams({ query, display: '5', start: '1', sort: 'random', format: 'json' }).toString();
+    // sort=random은 정확도순이라 "서울역"에 지하철 노선별 역이 먼저 걸립니다.
+    // comment는 리뷰·언급 수 순이라 유명한 장소가 앞에 옵니다.
+    searchUrl.search = new URLSearchParams({ query, display: '5', start: '1', sort: 'comment', format: 'json' }).toString();
     const response = await fetch(searchUrl, { headers: { 'x-ncp-apigw-api-key-id': env.NAVER_SEARCH_CLIENT_ID, 'x-ncp-apigw-api-key': env.NAVER_SEARCH_CLIENT_SECRET, Accept: 'application/json' } });
     if (!response.ok) throw new Error(`네이버 장소검색 오류(${response.status})`);
     const data = await response.json();
     const results = (data.items || []).map((item) => ({ title: String(item.title || '').replace(/<[^>]*>/g, ''), address: item.roadAddress || item.address || '', category: item.category || '' })).filter((item) => item.address);
+    // Array.prototype.sort는 안정 정렬이므로, 점수가 같으면 NAVER의 comment 정렬 순서를 그대로 유지합니다.
+    results.sort((a, b) => titleScore(b.title, query) - titleScore(a.title, query));
     return json({ query, results }, 200, origin, env);
   } catch (error) { return json({ error: error.message || '장소검색에 실패했습니다.' }, 502, origin, env); }
+}
+
+// 검색어와 상호가 정확히 같으면 최우선, 검색어로 시작하면 그다음으로 올립니다.
+function titleScore(title, query) {
+  const a = String(title).replace(/\s+/g, '');
+  const b = String(query).replace(/\s+/g, '');
+  if (a === b) return 2;
+  return a.startsWith(b) ? 1 : 0;
 }
 
 async function opinet(url, origin, env) {
