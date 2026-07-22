@@ -1,5 +1,6 @@
 // Cloudflare Worker that keeps NAVER Maps and Opinet credentials out of GitHub Pages.
-// Required secrets: NAVER_MAP_CLIENT_ID, NAVER_MAP_CLIENT_SECRET, OPINET_API_KEY.
+// Required secrets: NAVER_MAP_CLIENT_ID, NAVER_MAP_CLIENT_SECRET, NAVER_SEARCH_CLIENT_ID,
+// NAVER_SEARCH_CLIENT_SECRET, OPINET_API_KEY.
 // Optional secret: ALLOWED_ORIGIN.
 export default {
   async fetch(request, env) {
@@ -8,6 +9,7 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(origin, env) });
     if (url.pathname === '/opinet') return opinet(url, origin, env);
+    if (url.pathname === '/places') return places(url, origin, env);
     if (url.pathname !== '/route') return new Response('Not found', { status: 404 });
     const startAddress = url.searchParams.get('origin')?.trim();
     const goalAddress = url.searchParams.get('destination')?.trim();
@@ -42,6 +44,21 @@ export default {
     } catch (error) { return json({ error: error.message || '경로 조회에 실패했습니다.' }, 502, origin, env); }
   }
 };
+
+async function places(url, origin, env) {
+  const query = url.searchParams.get('query')?.trim();
+  if (!query) return json({ error: '검색할 장소명을 입력해 주세요.' }, 400, origin, env);
+  if (!env.NAVER_SEARCH_CLIENT_ID || !env.NAVER_SEARCH_CLIENT_SECRET) return json({ error: '네이버 장소검색 인증키가 설정되지 않았습니다.' }, 500, origin, env);
+  try {
+    const searchUrl = new URL('https://naverapihub.apigw.ntruss.com/search/v1/local');
+    searchUrl.search = new URLSearchParams({ query, display: '5', start: '1', sort: 'random', format: 'json' }).toString();
+    const response = await fetch(searchUrl, { headers: { 'x-ncp-apigw-api-key-id': env.NAVER_SEARCH_CLIENT_ID, 'x-ncp-apigw-api-key': env.NAVER_SEARCH_CLIENT_SECRET, Accept: 'application/json' } });
+    if (!response.ok) throw new Error(`네이버 장소검색 오류(${response.status})`);
+    const data = await response.json();
+    const results = (data.items || []).map((item) => ({ title: String(item.title || '').replace(/<[^>]*>/g, ''), address: item.roadAddress || item.address || '', category: item.category || '' })).filter((item) => item.address);
+    return json({ query, results }, 200, origin, env);
+  } catch (error) { return json({ error: error.message || '장소검색에 실패했습니다.' }, 502, origin, env); }
+}
 
 async function opinet(url, origin, env) {
   if (!env.OPINET_API_KEY) return json({ error: '오피넷 인증키가 설정되지 않았습니다.' }, 500, origin, env);
