@@ -5,15 +5,13 @@
 export default {
   async fetch(request, env) {
     const origin = request.headers.get('Origin') || '';
-    // Origin이 없으면 통과시키던 예전 검사는 curl 같은 비브라우저 호출을 전부 허용했습니다.
-    // 앱은 브라우저에서 항상 Origin을 보내므로, ALLOWED_ORIGIN이 설정되면 일치할 때만 허용합니다.
-    if (env.ALLOWED_ORIGIN && origin !== env.ALLOWED_ORIGIN) return new Response('Forbidden', { status: 403 });
+    if (!allowedOrigin(origin, env)) return json({ error: `허용되지 않은 접근입니다: ${origin || 'Origin 없음'}` }, 403, origin, env);
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(origin, env) });
     if (url.pathname === '/opinet') return opinet(url, origin, env);
     if (url.pathname === '/places') return places(url, origin, env);
     if (url.pathname === '/region') return region(url, origin, env);
-    if (url.pathname !== '/route') return new Response('Not found', { status: 404 });
+    if (url.pathname !== '/route') return json({ error: `없는 경로입니다: ${url.pathname}` }, 404, origin, env);
     const startAddress = url.searchParams.get('origin')?.trim();
     const goalAddress = url.searchParams.get('destination')?.trim();
     if (!startAddress || !goalAddress) return json({ error: '출발지와 도착지를 모두 입력해 주세요.' }, 400, origin, env);
@@ -178,8 +176,16 @@ function json(body, status, origin, env) {
   return new Response(JSON.stringify(body), { status, headers });
 }
 
+// ALLOWED_ORIGIN은 쉼표로 여러 개를 넣을 수 있습니다. 개발용 localhost는 본인 PC에서만
+// 닿을 수 있으므로 항상 허용합니다. Origin이 아예 없는 호출(curl 등)은 계속 막습니다.
+function allowedOrigin(origin, env) {
+  if (!env.ALLOWED_ORIGIN) return true;
+  if (!origin) return false;
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
+  return env.ALLOWED_ORIGIN.split(',').map((x) => x.trim()).filter(Boolean).includes(origin);
+}
+
+// 거부한 응답에도 CORS 헤더를 붙여야 브라우저가 "네트워크 실패" 대신 실제 사유를 보여 줍니다.
 function corsHeaders(origin, env) {
-  return origin && (!env.ALLOWED_ORIGIN || origin === env.ALLOWED_ORIGIN)
-    ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, OPTIONS' }
-    : {};
+  return origin ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, OPTIONS', Vary: 'Origin' } : {};
 }
