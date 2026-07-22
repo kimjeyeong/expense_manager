@@ -3,10 +3,36 @@ const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 const won = (n) => `${Math.round(Number(n) || 0).toLocaleString('ko-KR')}원`;
 const truncateOnes = (n) => Math.floor(Math.max(0, Number(n) || 0) / 10) * 10;
 const statusLabel = { draft: '작성중', completed: '정산완료', submitted: '정산완료', approved: '정산완료', rejected: '작성중', paid: '정산완료' };
-const provinceCodes = { 서울:'01', 경기:'02', 강원:'03', 충북:'04', 충남:'05', 전북:'06', 전남:'20', 경북:'08', 경남:'09', 부산:'10', 제주:'11', 대구:'14', 인천:'15', 광주:'20', 대전:'17', 울산:'18', 세종:'19' };
+// 2026-07-01 전라남도와 광주광역시가 전남광주통합특별시로 통합되었습니다.
+const provinceCodes = { 전남광주:'20', 서울:'01', 경기:'02', 강원:'03', 충북:'04', 충남:'05', 전북:'06', 경북:'08', 경남:'09', 부산:'10', 제주:'11', 대구:'14', 인천:'15', 대전:'17', 울산:'18', 세종:'19' };
+const provinceLabels = { 전남광주:'전남광주통합특별시', 서울:'서울특별시', 경기:'경기도', 강원:'강원특별자치도', 충북:'충청북도', 충남:'충청남도', 전북:'전북특별자치도', 경북:'경상북도', 경남:'경상남도', 부산:'부산광역시', 제주:'제주특별자치도', 대구:'대구광역시', 인천:'인천광역시', 대전:'대전광역시', 울산:'울산광역시', 세종:'세종특별자치시' };
 // 지오코딩이 돌려주는 시·도 정식 명칭은 provinceCodes의 약칭으로 시작하지 않는 경우가 있습니다.
-const provinceAliases = { 충청북도:'충북', 충청남도:'충남', 전라북도:'전북', 전라남도:'전남', 경상북도:'경북', 경상남도:'경남' };
+// 통합 이전 주소 표기(전라남도·광주광역시)도 통합 시·도로 받습니다.
+const provinceAliases = { 충청북도:'충북', 충청남도:'충남', 전라북도:'전북', 전라남도:'전남광주', 광주광역시:'전남광주', 경상북도:'경북', 경상남도:'경남' };
+// 통합 이전에 저장된 '전남'·'광주' 값도 계속 읽히도록 남겨 둡니다.
 const metro = new Set(['부산','대구','인천','광주','대전','울산','세종']);
+const districts = {
+  전남광주:['동구','서구','남구','북구','광산구','목포시','여수시','순천시','나주시','광양시','담양군','곡성군','구례군','고흥군','보성군','화순군','장흥군','강진군','해남군','영암군','무안군','함평군','영광군','장성군','완도군','진도군','신안군'],
+  서울:['종로구','중구','용산구','성동구','광진구','동대문구','중랑구','성북구','강북구','도봉구','노원구','은평구','서대문구','마포구','양천구','강서구','구로구','금천구','영등포구','동작구','관악구','서초구','강남구','송파구','강동구'],
+  경기:['수원시','성남시','의정부시','안양시','부천시','광명시','평택시','동두천시','안산시','고양시','과천시','구리시','남양주시','오산시','시흥시','군포시','의왕시','하남시','용인시','파주시','이천시','안성시','김포시','화성시','광주시','양주시','포천시','여주시','연천군','가평군','양평군'],
+  강원:['춘천시','원주시','강릉시','동해시','태백시','속초시','삼척시','홍천군','횡성군','영월군','평창군','정선군','철원군','화천군','양구군','인제군','고성군','양양군'],
+  충북:['청주시','충주시','제천시','보은군','옥천군','영동군','증평군','진천군','괴산군','음성군','단양군'],
+  충남:['천안시','공주시','보령시','아산시','서산시','논산시','계룡시','당진시','금산군','부여군','서천군','청양군','홍성군','예산군','태안군'],
+  전북:['전주시','군산시','익산시','정읍시','남원시','김제시','완주군','진안군','무주군','장수군','임실군','순창군','고창군','부안군'],
+  경북:['포항시','경주시','김천시','안동시','구미시','영주시','영천시','상주시','문경시','경산시','의성군','청송군','영양군','영덕군','청도군','고령군','성주군','칠곡군','예천군','봉화군','울진군','울릉군'],
+  경남:['창원시','진주시','통영시','사천시','김해시','밀양시','거제시','양산시','의령군','함안군','창녕군','고성군','남해군','하동군','산청군','함양군','거창군','합천군'],
+  부산:['중구','서구','동구','영도구','부산진구','동래구','남구','북구','해운대구','사하구','금정구','강서구','연제구','수영구','사상구','기장군'],
+  제주:['제주시','서귀포시'],
+  대구:['중구','동구','서구','남구','북구','수성구','달서구','달성군','군위군'],
+  인천:['중구','동구','미추홀구','연수구','남동구','부평구','계양구','서구','강화군','옹진군'],
+  대전:['동구','중구','서구','유성구','대덕구'],
+  울산:['중구','남구','동구','북구','울주군'],
+  세종:['세종시']
+};
+// 통합 이전 광주광역시 5개 구입니다. 숙박 상한을 종전 광역시 기준으로 유지하기 위해 구분합니다.
+const gwangjuDistricts = new Set(['동구','서구','남구','북구','광산구']);
+function provinceName(key) { return provinceLabels[key] || key || ''; }
+function districtOptions(province, city) { return (districts[province] || []).map((x) => `<option value="${x}" ${x===city?'selected':''}>${x}</option>`).join(''); }
 const fuelLabels = { gasoline:'휘발유차', diesel:'경유차', lpg:'LPG차', hybrid:'하이브리드차', electric:'전기차', hydrogen:'수소차' };
 const energyUnits = { gasoline:'L', diesel:'L', lpg:'L', hybrid:'L', electric:'kWh', hydrogen:'kg' };
 const efficiencyUnits = { gasoline:'km/L', diesel:'km/L', lpg:'km/L', hybrid:'km/L', electric:'km/kWh', hydrogen:'km/kg' };
@@ -89,7 +115,13 @@ async function load() { state = await request('/api/data'); render(); }
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2400); }
 function setView(view) { currentView = view; if (view === 'editor' && !editingId) editorStep = 1; $$('#nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === view)); render(); }
 function daysInclusive(start, end) { if (!start || !end) return 1; return Math.max(1, Math.floor((new Date(end) - new Date(start)) / 86400000) + 1); }
-function lodgingCap(province) { const c = state.settings.lodgingCaps || {}; return province === '서울' ? c.seoul : metro.has(province) ? c.metro : c.other; }
+function lodgingCap(province, city) {
+  const c = state.settings.lodgingCaps || {};
+  if (province === '서울') return c.seoul;
+  // 통합 이후에는 시·도만으로 광역시 여부를 가릴 수 없어, 옛 광주 5개 구는 시·군·구로 판정합니다.
+  if (province === '전남광주') return gwangjuDistricts.has(city) ? c.metro : c.other;
+  return metro.has(province) ? c.metro : c.other;
+}
 function getVehicle(id) { return state.vehicles.find((v) => v.id === id); }
 
 function calculate(t) {
@@ -100,7 +132,7 @@ function calculate(t) {
   const mealRate = Number(state.settings.mealRate || 0);
   const providedMeals = Math.min(days * 3, Math.max(0, Number(t.mealProvided || 0)));
   const meals = Math.max(0, days * mealRate - providedMeals * (mealRate / 3));
-  const cap = Number(lodgingCap(t.province) || 0) * Number(t.nights || 0);
+  const cap = Number(lodgingCap(t.province, t.city) || 0) * Number(t.nights || 0);
   const lodging = Math.min(Number(t.lodgingActual || 0), cap);
   const vehicle = getVehicle(t.vehicleId);
   const fuel = t.transport === 'car' && vehicle?.efficiency ? Number(t.distance || 0) / Number(vehicle.efficiency) * Number(t.oilPrice || 0) : 0;
@@ -125,11 +157,14 @@ function dashboard() {
 
 function tripTable(trips) {
   if (!trips.length) return '<div class="empty">등록된 출장 정산이 없습니다.</div>';
-  return `<div class="table-wrap"><table><thead><tr><th>상태</th><th>출장자</th><th>출장기간</th><th>출장지</th><th>목적</th><th>산정액</th></tr></thead><tbody>${trips.map((t) => `<tr class="trip-row" data-id="${t.id}"><td><span class="status status-${t.status}">${statusLabel[t.status]}</span></td><td><b>${esc(t.employee)}</b><br><small>${esc(t.department)}</small></td><td>${t.startDate}<br><small>~ ${t.endDate}</small></td><td>${esc(t.province)} ${esc(t.city || '')}</td><td>${esc(t.purpose)}</td><td><b>${won(calculate(t).total)}</b></td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>상태</th><th>출장자</th><th>출장기간</th><th>출장지</th><th>목적</th><th>산정액</th></tr></thead><tbody>${trips.map((t) => `<tr class="trip-row" data-id="${t.id}"><td><span class="status status-${t.status}">${statusLabel[t.status]}</span></td><td><b>${esc(t.employee)}</b><br><small>${esc(t.department)}</small></td><td>${t.startDate}<br><small>~ ${t.endDate}</small></td><td>${esc(provinceName(t.province))} ${esc(t.city || '')}</td><td>${esc(t.purpose)}</td><td><b>${won(calculate(t).total)}</b></td></tr>`).join('')}</tbody></table></div>`;
 }
 
 function esc(value='') { return String(value).replace(/[&<>'"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
-function currentTrip() { const firstVehicle=state.vehicles[0]; return state.trips.find((t) => t.id === editingId) || { employee:'김광양', department:'데이터정보과', grade:'일반직', startDate:new Date().toISOString().slice(0,10), endDate:new Date().toISOString().slice(0,10), province:'전남', city:'', origin:'광양시청', transport:'car', vehicleId:firstVehicle?.id || '', distance:0, oilPrice:state.settings.fallbackFuel?.[firstVehicle?.fuel||'gasoline'] || 0, oilSource:'관리자 기준단가', toll:0, parking:0, nights:0, lodgingActual:0, transitActual:0, mealProvided:0, status:'draft', attachments:[], notes:'' }; }
+// 통합 이전에 저장된 '전남'·'광주'는 편집할 때 통합 시·도로 옮깁니다.
+// 옛 광주 건은 시·군·구('북구' 등)가 그대로 남아 광역시 숙박 상한이 유지됩니다.
+const legacyProvinces = { 전남:'전남광주', 광주:'전남광주' };
+function currentTrip() { const firstVehicle=state.vehicles[0]; const found=state.trips.find((t) => t.id === editingId); if (found) { if (legacyProvinces[found.province]) found.province = legacyProvinces[found.province]; return found; } return { employee:'김광양', department:'데이터정보과', grade:'일반직', startDate:new Date().toISOString().slice(0,10), endDate:new Date().toISOString().slice(0,10), province:'전남광주', city:'', origin:'광양시청', transport:'car', vehicleId:firstVehicle?.id || '', distance:0, oilPrice:state.settings.fallbackFuel?.[firstVehicle?.fuel||'gasoline'] || 0, oilSource:'관리자 기준단가', toll:0, parking:0, nights:0, lodgingActual:0, transitActual:0, mealProvided:0, status:'draft', attachments:[], notes:'' }; }
 
 function stepper() { return `<div class="stepper">${['출장 정보','교통·여비','증빙자료','정산서 출력'].map((x,i) => `<div class="step ${editorStep === i+1 ? 'active' : editorStep > i+1 ? 'done' : ''}"><span>${editorStep > i+1 ? '✓' : i+1}</span>${x}</div>`).join('')}</div>`; }
 function input(name,label,value,type='text',cls='') { return `<div class="field ${cls}"><label for="${name}">${label}</label><input id="${name}" name="${name}" type="${type}" value="${esc(value ?? '')}"></div>`; }
@@ -141,7 +176,9 @@ function editor() {
   if (editorStep === 1) body = `<div class="form-grid">
     ${input('employee','출장자',t.employee)}${input('department','소속 부서',t.department)}${input('grade','직급/구분',t.grade)}
     ${input('startDate','출장 시작일',t.startDate,'date')}${input('endDate','출장 종료일',t.endDate,'date')}${input('purpose','출장 목적',t.purpose)}
-    ${select('province','출장 시·도',t.province,Object.keys(provinceCodes).map(x=>[x,x]))}${input('city','시·군·구',t.city)}${placeSearchField(t.destination)}
+    ${select('province','출장 시·도',t.province,Object.keys(provinceCodes).map(x=>[x,provinceName(x)]))}
+    <div class="field"><label for="city">시·군·구</label><select id="city" name="city"><option value="">선택 안 함</option>${districtOptions(t.province,t.city)}</select></div>
+    ${placeSearchField(t.destination)}
     <div class="field full"><label>비고</label><textarea name="notes">${esc(t.notes)}</textarea></div>
   </div>`;
   if (editorStep === 2) {
@@ -158,7 +195,7 @@ function editor() {
       <div class="field full transit-only notice">철도·버스 운임은 실제 결제액을 입력하고 다음 단계에서 승차권을 첨부합니다. 자동 운임표는 참고값으로만 운영하는 것이 안전합니다.</div>
       <h3 class="section-title">숙박·식비</h3>
       ${input('nights','숙박일수',t.nights,'number')}${input('lodgingActual','숙박 실제 결제액',t.lodgingActual,'number')}${input('mealProvided','무료 제공 식사 횟수(조·중·석)',t.mealProvided,'number')}
-      <div class="field full notice ${Number(t.lodgingActual||0)>c.cap?'warn':''}">선택 지역의 숙박비 상한은 ${won(lodgingCap(t.province))}/박입니다. 현재 인정 한도 ${won(c.cap)}, 지급 산정액 ${won(c.lodging)}${Number(t.lodgingActual||0)>c.cap?' — 초과액은 자동 제외됩니다.':''}</div>
+      <div class="field full notice ${Number(t.lodgingActual||0)>c.cap?'warn':''}">선택 지역의 숙박비 상한은 ${won(lodgingCap(t.province, t.city))}/박입니다. 현재 인정 한도 ${won(c.cap)}, 지급 산정액 ${won(c.lodging)}${Number(t.lodgingActual||0)>c.cap?' — 초과액은 자동 제외됩니다.':''}</div>
       <div class="field full notice">관용차 이용 시 해당 출장일의 일비는 50%만 지급합니다. 식비는 주최기관·교육기관·행사비·법인카드 등으로 본인 부담 없이 제공된 조식·중식·석식만 입력하며, 1식마다 1일 식비의 3분의 1을 감액합니다. 다과·음료는 식사에 포함하지 않습니다.</div>
     </div>`;
   }
@@ -179,7 +216,7 @@ function summary(t) { const c=calculate(t), v=getVehicle(t.vehicleId); return `<
     ${c.extras?`<div class="calc-row"><div><b>통행·주차료</b><small>실비 입력</small></div><span>증빙 첨부</span><strong>${won(c.extras)}</strong></div>`:''}
     <div class="calc-row"><div><b>절사 전 합계</b><small>전체 인정금액 합산</small></div><span>소계</span><strong>${won(c.grossTotal)}</strong></div>
     <div class="calc-row"><div><b>원단위 절사</b><small>10원 미만 금액 버림</small></div><span>최종금액 적용</span><strong>-${won(c.truncation)}</strong></div>
-  </div><div class="notice">적용 규정: ${esc(state.settings.ruleVersion)} · 출력 시 적용 단가와 계산 근거가 정산 건에 저장됩니다.</div></div><div><div class="total-box"><span>최종 지급 산정액</span><b>${won(c.total)}</b><small>증빙 ${t.attachments?.length||0}건 · 원단위 절사 적용</small></div><div class="panel" style="margin-top:14px"><div class="panel-body"><b>출장 요약</b><p>${esc(t.employee)} · ${esc(t.department)}</p><p>${t.startDate} ~ ${t.endDate}</p><p>${esc(t.province)} ${esc(t.city||'')} · ${esc(t.purpose)}</p></div></div></div></div>`; }
+  </div><div class="notice">적용 규정: ${esc(state.settings.ruleVersion)} · 출력 시 적용 단가와 계산 근거가 정산 건에 저장됩니다.</div></div><div><div class="total-box"><span>최종 지급 산정액</span><b>${won(c.total)}</b><small>증빙 ${t.attachments?.length||0}건 · 원단위 절사 적용</small></div><div class="panel" style="margin-top:14px"><div class="panel-body"><b>출장 요약</b><p>${esc(t.employee)} · ${esc(t.department)}</p><p>${t.startDate} ~ ${t.endDate}</p><p>${esc(provinceName(t.province))} ${esc(t.city||'')} · ${esc(t.purpose)}</p></div></div></div></div>`; }
 
 function admin() { const s=state.settings; return `<form id="admin-form"><div class="admin-grid"><div class="panel"><div class="panel-head"><h2>여비 기준</h2></div><div class="panel-body"><div class="form-grid">
     ${input('dailyRate','일비(1일)',s.dailyRate,'number','half')}${input('mealRate','식비(1일)',s.mealRate,'number','half')}
@@ -226,6 +263,8 @@ function bind() {
   $('[data-action="next"]')?.addEventListener('click',async()=>{await saveTrip();editorStep++;render()});
   $('[data-action="save"]')?.addEventListener('click',()=>saveTrip());
   $('[data-action="complete"]')?.addEventListener('click',async()=>{const t=await saveTrip('completed');t.history=t.history||[];t.history.push({at:new Date().toISOString(),action:'총괄 정산서 출력',actor:t.employee});await request('/api/trips',{method:'POST',body:JSON.stringify(t)});await load();const completed=state.trips.find(x=>x.id===t.id);printTrip(completed,getVehicle(completed.vehicleId),calculate(completed))});
+  // 시·도를 바꾸면 시·군·구 목록도 그 시·도 것으로 갈아 끼웁니다.
+  $('[name="province"]')?.addEventListener('change',(e)=>{const city=$('[name="city"]');if(!city)return;city.innerHTML=`<option value="">선택 안 함</option>${districtOptions(e.target.value,'')}`;currentTrip().city=''});
   $('[name="transport"]')?.addEventListener('change',toggleTransport);
   $('[name="vehicleId"]')?.addEventListener('change',(e)=>{const vehicle=getVehicle(e.target.value);const price=state.settings.fallbackFuel?.[vehicle?.fuel]||0;const priceInput=$('[name="oilPrice"]');if(priceInput)priceInput.value=price;const trip=currentTrip();trip.oilPrice=price;trip.oilSource='관리자 기준단가';toast(`${vehicle?.name || fuelLabels[vehicle?.fuel]} 기준단가를 적용했습니다.`)});
   $('[data-action="oil"]')?.addEventListener('click',lookupOil);
@@ -284,9 +323,9 @@ async function storeAttachment(trip,file,isImage){
 }
 async function saveAdmin(e){e.preventDefault();const f=new FormData(e.currentTarget);const rows=$$('[data-vehicle]').map((r,i)=>{const fuel=$('select',r).value;return{id:state.vehicles[i].id||crypto.randomUUID(),name:$$('input',r)[0].value,fuel,efficiency:Number($$('input',r)[1].value),unit:efficiencyUnits[fuel],active:true}});const settings={dailyRate:Number(f.get('dailyRate')),mealRate:Number(f.get('mealRate')),lodgingCaps:{seoul:Number(f.get('capSeoul')),metro:Number(f.get('capMetro')),other:Number(f.get('capOther'))},ruleVersion:f.get('ruleVersion'),routeApiUrl:f.get('routeApiUrl').trim(),fallbackFuel:{gasoline:Number(f.get('gasoline')),diesel:Number(f.get('diesel')),lpg:Number(f.get('lpg')),hybrid:Number(f.get('hybrid')),electric:Number(f.get('electric')),hydrogen:Number(f.get('hydrogen'))}};await request('/api/admin',{method:'POST',body:JSON.stringify({settings,vehicles:rows})});await load();toast('관리자 설정을 저장했습니다.')}
 
-function openDetail(id){const t=state.trips.find(x=>x.id===id),c=calculate(t),v=getVehicle(t.vehicleId);const modal=document.createElement('div');modal.className='modal-backdrop';modal.innerHTML=`<div class="modal"><div class="panel"><div class="panel-head"><div><h2>${esc(t.purpose)}</h2><div class="helper">${t.startDate} ~ ${t.endDate}</div></div><button class="btn btn-secondary btn-small" data-close>닫기</button></div><div class="panel-body"><div class="detail-grid"><div class="detail-item"><small>출장자</small><b>${esc(t.employee)} · ${esc(t.department)}</b></div><div class="detail-item"><small>출장지</small><b>${esc(t.province)} ${esc(t.city||'')}</b></div><div class="detail-item"><small>산정액</small><b>${won(c.total)}</b></div></div><div style="margin-top:20px">${summary(t)}</div><h3>처리 이력</h3><div class="history">${(t.history||[]).map(h=>`<div class="history-item"><b>${esc(h.action)} · ${esc(h.actor)}</b><small>${new Date(h.at).toLocaleString('ko-KR')} ${h.note?'· '+esc(h.note):''}</small></div>`).join('')||'<span class="helper">이력이 없습니다.</span>'}</div><div class="actions"><button class="btn btn-secondary" data-edit>수정</button><button class="btn btn-primary" data-print>총괄 PDF 출력</button></div></div></div></div>`;document.body.append(modal);modal.onclick=e=>{if(e.target===modal||e.target.hasAttribute('data-close'))modal.remove()};$('[data-edit]',modal)?.addEventListener('click',()=>{modal.remove();editingId=id;editorStep=1;setView('editor')});$('[data-print]',modal).onclick=()=>printTrip(t,v,c)}
+function openDetail(id){const t=state.trips.find(x=>x.id===id),c=calculate(t),v=getVehicle(t.vehicleId);const modal=document.createElement('div');modal.className='modal-backdrop';modal.innerHTML=`<div class="modal"><div class="panel"><div class="panel-head"><div><h2>${esc(t.purpose)}</h2><div class="helper">${t.startDate} ~ ${t.endDate}</div></div><button class="btn btn-secondary btn-small" data-close>닫기</button></div><div class="panel-body"><div class="detail-grid"><div class="detail-item"><small>출장자</small><b>${esc(t.employee)} · ${esc(t.department)}</b></div><div class="detail-item"><small>출장지</small><b>${esc(provinceName(t.province))} ${esc(t.city||'')}</b></div><div class="detail-item"><small>산정액</small><b>${won(c.total)}</b></div></div><div style="margin-top:20px">${summary(t)}</div><h3>처리 이력</h3><div class="history">${(t.history||[]).map(h=>`<div class="history-item"><b>${esc(h.action)} · ${esc(h.actor)}</b><small>${new Date(h.at).toLocaleString('ko-KR')} ${h.note?'· '+esc(h.note):''}</small></div>`).join('')||'<span class="helper">이력이 없습니다.</span>'}</div><div class="actions"><button class="btn btn-secondary" data-edit>수정</button><button class="btn btn-primary" data-print>총괄 PDF 출력</button></div></div></div></div>`;document.body.append(modal);modal.onclick=e=>{if(e.target===modal||e.target.hasAttribute('data-close'))modal.remove()};$('[data-edit]',modal)?.addEventListener('click',()=>{modal.remove();editingId=id;editorStep=1;setView('editor')});$('[data-print]',modal).onclick=()=>printTrip(t,v,c)}
 async function updateStatus(id,status,action,note=''){await request(`/api/trips/${id}/status`,{method:'POST',body:JSON.stringify({status,action,actor:'회계담당자',note})});$$('.modal-backdrop').forEach(x=>x.remove());await load();toast(`${action} 처리했습니다.`)}
-function printTrip(t,v,c){const attachments=t.attachments||[], images=attachments.filter(a=>a.type.startsWith('image/')), documents=attachments.filter(a=>!a.type.startsWith('image/'));let report=$('#print-report');if(!report){report=document.createElement('section');report.id='print-report';report.className='print-report';document.body.append(report)}report.innerHTML=`<h1>관외출장 여비 정산 결과보고서</h1><table><tr><th>출장자</th><td>${esc(t.employee)}</td><th>소속</th><td>${esc(t.department)}</td></tr><tr><th>출장기간</th><td>${t.startDate} ~ ${t.endDate}</td><th>출장지</th><td>${esc(t.province)} ${esc(t.city||'')}</td></tr><tr><th>출장목적</th><td colspan="3">${esc(t.purpose)}</td></tr></table><h2>여비 산정 내역</h2><table><tr><th>항목</th><th>산정 근거</th><th>금액</th></tr><tr><td>일비</td><td>${c.days}일 × ${won(state.settings.dailyRate)}${c.dailyRateFactor===0.5?' × 50%(관용차)':''}</td><td>${won(c.daily)}</td></tr><tr><td>식비</td><td>무료 제공식 ${c.providedMeals}회 × 1일 식비의 1/3 차감</td><td>${won(c.meals)}</td></tr><tr><td>숙박비</td><td>실제 ${won(t.lodgingActual)}, 한도 ${won(c.cap)}</td><td>${won(c.lodging)}</td></tr><tr><td>교통비</td><td>${t.transport==='car'?`${esc(v?.name || fuelLabels[v?.fuel])}: ${t.distance}km ÷ ${v?.efficiency}${v?.unit || efficiencyUnits[v?.fuel]} × ${won(t.oilPrice)}/${energyUnits[v?.fuel]} (${esc(t.oilSource)})`:t.transport==='official'?'관용차 이용 · 별도 운임 없음':'실제 운임'}</td><td>${won(t.transport==='car'?c.fuel:c.transit)}</td></tr><tr><td>통행·주차료</td><td>실비</td><td>${won(c.extras)}</td></tr><tr><td>절사 전 합계</td><td>전체 인정금액 합산</td><td>${won(c.grossTotal)}</td></tr><tr><td>원단위 절사</td><td>10원 미만 금액 버림</td><td>-${won(c.truncation)}</td></tr><tr><th colspan="2">최종 지급액</th><th>${won(c.total)}</th></tr></table><p>적용 기준: ${esc(state.settings.ruleVersion)} · 최종금액 원단위 절사</p><h2>증빙자료 목록</h2><table><tr><th>순번</th><th>파일명</th><th>등록일</th></tr>${attachments.length?attachments.map((a,i)=>`<tr><td>${i+1}</td><td>${esc(a.name)}</td><td>${new Date(a.uploadedAt).toLocaleDateString('ko-KR')}</td></tr>`).join(''):'<tr><td colspan="3" class="no-proof">첨부된 증빙자료가 없습니다.</td></tr>'}</table>${images.length?`<section class="evidence-sheet"><div class="evidence-sheet-head"><h2>증빙자료 사진대지</h2><span>총 ${images.length}건</span></div><div class="photo-grid">${images.map(a=>`<figure class="photo-card"><div class="photo-frame"><img src="${attachmentUrl(a)}" alt="${esc(a.name)}"></div><figcaption><b>${esc(a.name)}</b><span>등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')}</span></figcaption></figure>`).join('')}</div></section>`:''}${documents.length?`<section class="document-proof"><h2>원본 파일 증빙</h2><p>아래 PDF 증빙은 사진대지와 함께 원본 파일로 보관됩니다.</p><ol>${documents.map(a=>`<li>${esc(a.name)} <span>(등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')})</span></li>`).join('')}</ol></section>`:''}`;window.print()}
+function printTrip(t,v,c){const attachments=t.attachments||[], images=attachments.filter(a=>a.type.startsWith('image/')), documents=attachments.filter(a=>!a.type.startsWith('image/'));let report=$('#print-report');if(!report){report=document.createElement('section');report.id='print-report';report.className='print-report';document.body.append(report)}report.innerHTML=`<h1>관외출장 여비 정산 결과보고서</h1><table><tr><th>출장자</th><td>${esc(t.employee)}</td><th>소속</th><td>${esc(t.department)}</td></tr><tr><th>출장기간</th><td>${t.startDate} ~ ${t.endDate}</td><th>출장지</th><td>${esc(provinceName(t.province))} ${esc(t.city||'')}</td></tr><tr><th>출장목적</th><td colspan="3">${esc(t.purpose)}</td></tr></table><h2>여비 산정 내역</h2><table><tr><th>항목</th><th>산정 근거</th><th>금액</th></tr><tr><td>일비</td><td>${c.days}일 × ${won(state.settings.dailyRate)}${c.dailyRateFactor===0.5?' × 50%(관용차)':''}</td><td>${won(c.daily)}</td></tr><tr><td>식비</td><td>무료 제공식 ${c.providedMeals}회 × 1일 식비의 1/3 차감</td><td>${won(c.meals)}</td></tr><tr><td>숙박비</td><td>실제 ${won(t.lodgingActual)}, 한도 ${won(c.cap)}</td><td>${won(c.lodging)}</td></tr><tr><td>교통비</td><td>${t.transport==='car'?`${esc(v?.name || fuelLabels[v?.fuel])}: ${t.distance}km ÷ ${v?.efficiency}${v?.unit || efficiencyUnits[v?.fuel]} × ${won(t.oilPrice)}/${energyUnits[v?.fuel]} (${esc(t.oilSource)})`:t.transport==='official'?'관용차 이용 · 별도 운임 없음':'실제 운임'}</td><td>${won(t.transport==='car'?c.fuel:c.transit)}</td></tr><tr><td>통행·주차료</td><td>실비</td><td>${won(c.extras)}</td></tr><tr><td>절사 전 합계</td><td>전체 인정금액 합산</td><td>${won(c.grossTotal)}</td></tr><tr><td>원단위 절사</td><td>10원 미만 금액 버림</td><td>-${won(c.truncation)}</td></tr><tr><th colspan="2">최종 지급액</th><th>${won(c.total)}</th></tr></table><p>적용 기준: ${esc(state.settings.ruleVersion)} · 최종금액 원단위 절사</p><h2>증빙자료 목록</h2><table><tr><th>순번</th><th>파일명</th><th>등록일</th></tr>${attachments.length?attachments.map((a,i)=>`<tr><td>${i+1}</td><td>${esc(a.name)}</td><td>${new Date(a.uploadedAt).toLocaleDateString('ko-KR')}</td></tr>`).join(''):'<tr><td colspan="3" class="no-proof">첨부된 증빙자료가 없습니다.</td></tr>'}</table>${images.length?`<section class="evidence-sheet"><div class="evidence-sheet-head"><h2>증빙자료 사진대지</h2><span>총 ${images.length}건</span></div><div class="photo-grid">${images.map(a=>`<figure class="photo-card"><div class="photo-frame"><img src="${attachmentUrl(a)}" alt="${esc(a.name)}"></div><figcaption><b>${esc(a.name)}</b><span>등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')}</span></figcaption></figure>`).join('')}</div></section>`:''}${documents.length?`<section class="document-proof"><h2>원본 파일 증빙</h2><p>아래 PDF 증빙은 사진대지와 함께 원본 파일로 보관됩니다.</p><ol>${documents.map(a=>`<li>${esc(a.name)} <span>(등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')})</span></li>`).join('')}</ol></section>`:''}`;window.print()}
 
 $('#nav').addEventListener('click',(e)=>{const b=e.target.closest('button[data-view]');if(b)setView(b.dataset.view)});
 load().catch(e=>{document.querySelector('#app').innerHTML=`<div class="panel"><div class="empty">${esc(e.message)}<br>서버를 다시 실행해 주세요.</div></div>`});
