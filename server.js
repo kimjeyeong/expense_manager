@@ -170,8 +170,8 @@ async function fetchNaverDistance(settings, query) {
 }
 
 async function fetchOpinet(settings, query) {
-  if (!settings.opinetKey) throw new Error('관리자 설정에서 오피넷 인증키를 입력해 주세요.');
-  if (['electric', 'hydrogen'].includes(query.get('fuel'))) throw new Error('전기·수소 단가는 오피넷 대상이 아니므로 관리자 기준단가를 적용합니다.');
+  if (!settings.opinetKey) throw new Error('오피넷 인증키가 설정되지 않았습니다. data/store.json의 opinetKey를 확인해 주세요.');
+  if (['electric', 'hydrogen'].includes(query.get('fuel'))) throw new Error('전기·수소 단가는 오피넷 대상이 아닙니다. 실제 충전단가를 직접 입력해 주세요.');
   const fuel = query.get('fuel');
   const prodcd = productCode(fuel);
   const area = query.get('area') || '';
