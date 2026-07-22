@@ -5,7 +5,9 @@
 export default {
   async fetch(request, env) {
     const origin = request.headers.get('Origin') || '';
-    if (env.ALLOWED_ORIGIN && origin && origin !== env.ALLOWED_ORIGIN) return new Response('Forbidden', { status: 403 });
+    // Origin이 없으면 통과시키던 예전 검사는 curl 같은 비브라우저 호출을 전부 허용했습니다.
+    // 앱은 브라우저에서 항상 Origin을 보내므로, ALLOWED_ORIGIN이 설정되면 일치할 때만 허용합니다.
+    if (env.ALLOWED_ORIGIN && origin !== env.ALLOWED_ORIGIN) return new Response('Forbidden', { status: 403 });
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(origin, env) });
     if (url.pathname === '/opinet') return opinet(url, origin, env);
