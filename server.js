@@ -127,6 +127,45 @@ function normalizeOilList(payload) {
   return Array.isArray(result) ? result : [result].filter(Boolean);
 }
 
+async function naverJson(url, settings) {
+  if (!settings.naverClientId || !settings.naverClientSecret) {
+    throw new Error('네이버 지도 Client ID와 Client Secret을 서버 환경변수에 설정해 주세요.');
+  }
+  const response = await fetch(url, {
+    headers: {
+      'x-ncp-apigw-api-key-id': settings.naverClientId,
+      'x-ncp-apigw-api-key': settings.naverClientSecret,
+      Accept: 'application/json'
+    },
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) throw new Error(`네이버 지도 API 응답 오류(${response.status})`);
+  return response.json();
+}
+
+async function fetchNaverDistance(settings, query) {
+  const origin = String(query.get('origin') || '').trim();
+  const destination = String(query.get('destination') || '').trim();
+  if (!origin || !destination) throw new Error('출발지와 도착지를 모두 입력해 주세요.');
+
+  const geocode = async (address) => {
+    const url = new URL('https://maps.apigw.ntruss.com/map-geocode/v2/geocode');
+    url.searchParams.set('query', address);
+    const data = await naverJson(url, settings);
+    const item = data.addresses?.[0];
+    if (!item?.x || !item?.y) throw new Error(`주소를 찾을 수 없습니다: ${address}`);
+    return `${item.x},${item.y}`;
+  };
+  const [start, goal] = await Promise.all([geocode(origin), geocode(destination)]);
+  const directionUrl = new URL('https://naveropenapi.apigw.ntruss.com/map-direction/v1/driving');
+  directionUrl.search = new URLSearchParams({ start, goal, option: 'trafast', lang: 'ko' }).toString();
+  const directions = await naverJson(directionUrl, settings);
+  const route = directions.route?.trafast?.[0] || directions.route?.traoptimal?.[0];
+  const distance = Number(route?.summary?.distance);
+  if (!Number.isFinite(distance)) throw new Error('네이버 지도에서 경로 거리를 받지 못했습니다.');
+  return { origin, destination, oneWayMeters: distance, oneWayKm: Number((distance / 1000).toFixed(1)), roundTripKm: Number((distance / 500).toFixed(1)) };
+}
+
 async function fetchOpinet(settings, query) {
   if (!settings.opinetKey) throw new Error('관리자 설정에서 오피넷 인증키를 입력해 주세요.');
   if (['electric', 'hydrogen'].includes(query.get('fuel'))) throw new Error('전기·수소 단가는 오피넷 대상이 아니므로 관리자 기준단가를 적용합니다.');
@@ -279,6 +318,15 @@ async function api(req, res, url) {
     catch (error) { return send(res, 502, { error: error.message }); }
   }
 
+  if (req.method === 'GET' && pathname === '/api/directions') {
+    try {
+      return send(res, 200, await fetchNaverDistance({
+        naverClientId: process.env.NAVER_MAP_CLIENT_ID,
+        naverClientSecret: process.env.NAVER_MAP_CLIENT_SECRET
+      }, url.searchParams));
+    } catch (error) { return send(res, 502, { error: error.message }); }
+  }
+
   return send(res, 404, { error: 'API 경로를 찾을 수 없습니다.' });
 }
 
@@ -309,4 +357,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, productCode, dailyAreaProductCode, normalizeOilList };
+module.exports = { server, productCode, dailyAreaProductCode, normalizeOilList, fetchNaverDistance };
