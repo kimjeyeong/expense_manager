@@ -10,31 +10,20 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(origin, env) });
     if (url.pathname === '/opinet') return opinet(url, origin, env);
     if (url.pathname === '/places') return places(url, origin, env);
+    if (url.pathname === '/region') return region(url, origin, env);
     if (url.pathname !== '/route') return new Response('Not found', { status: 404 });
     const startAddress = url.searchParams.get('origin')?.trim();
     const goalAddress = url.searchParams.get('destination')?.trim();
     if (!startAddress || !goalAddress) return json({ error: '출발지와 도착지를 모두 입력해 주세요.' }, 400, origin, env);
     if (!env.NAVER_MAP_CLIENT_ID || !env.NAVER_MAP_CLIENT_SECRET) return json({ error: '네이버 Maps 인증키가 설정되지 않았습니다.' }, 500, origin, env);
 
-    const headers = { 'x-ncp-apigw-api-key-id': env.NAVER_MAP_CLIENT_ID, 'x-ncp-apigw-api-key': env.NAVER_MAP_CLIENT_SECRET, Accept: 'application/json' };
     try {
-      const geocode = async (address) => {
-        const apiUrl = new URL('https://maps.apigw.ntruss.com/map-geocode/v2/geocode');
-        apiUrl.searchParams.set('query', address);
-        const response = await fetch(apiUrl, { headers });
-        if (!response.ok) throw new Error(`주소 검색 오류(${response.status})`);
-        const item = (await response.json()).addresses?.[0];
-        if (!item?.x || !item?.y) throw new Error(`주소를 찾을 수 없습니다: ${address}`);
-        return `${item.x},${item.y}`;
-      };
-      // "광양시청"은 지오코딩 결과가 없을 수 있어, 이 서비스의 고정 출발지는 정확한 도로명 주소로 보정합니다.
-      const startQuery = startAddress === '광양시청' ? '전라남도 광양시 시청로 33' : startAddress;
-      const [start, goal] = await Promise.all([geocode(startQuery), geocode(goalAddress)]);
+      const [start, goal] = await Promise.all([geocode(startAddress, env), geocode(goalAddress, env)]);
       // Directions 5는 지오코딩과 같은 maps.apigw.ntruss.com 게이트웨이를 사용합니다.
       // 구 naveropenapi.apigw.ntruss.com 도메인은 신규 앱에서 401(errorCode 210)을 반환합니다.
       const directionsUrl = new URL('https://maps.apigw.ntruss.com/map-direction/v1/driving');
-      directionsUrl.search = new URLSearchParams({ start, goal, option: 'trafast', lang: 'ko' }).toString();
-      const response = await fetch(directionsUrl, { headers });
+      directionsUrl.search = new URLSearchParams({ start: coords(start), goal: coords(goal), option: 'trafast', lang: 'ko' }).toString();
+      const response = await fetch(directionsUrl, { headers: mapHeaders(env) });
       if (!response.ok) {
         const detail = await response.text();
         throw new Error(`자동차 경로 조회 오류(${response.status})${detail ? `: ${detail.slice(0, 180)}` : ''}`);
@@ -46,6 +35,37 @@ export default {
     } catch (error) { return json({ error: error.message || '경로 조회에 실패했습니다.' }, 502, origin, env); }
   }
 };
+
+function mapHeaders(env) {
+  return { 'x-ncp-apigw-api-key-id': env.NAVER_MAP_CLIENT_ID, 'x-ncp-apigw-api-key': env.NAVER_MAP_CLIENT_SECRET, Accept: 'application/json' };
+}
+
+function coords(item) { return `${item.x},${item.y}`; }
+
+async function geocode(address, env) {
+  const apiUrl = new URL('https://maps.apigw.ntruss.com/map-geocode/v2/geocode');
+  // "광양시청"은 지오코딩 결과가 없을 수 있어, 이 서비스의 고정 출발지는 정확한 도로명 주소로 보정합니다.
+  apiUrl.searchParams.set('query', address === '광양시청' ? '전라남도 광양시 시청로 33' : address);
+  const response = await fetch(apiUrl, { headers: mapHeaders(env) });
+  if (!response.ok) throw new Error(`주소 검색 오류(${response.status})`);
+  const item = (await response.json()).addresses?.[0];
+  if (!item?.x || !item?.y) throw new Error(`주소를 찾을 수 없습니다: ${address}`);
+  return item;
+}
+
+// 유가는 출발지 기준으로 조회하므로, 자유 입력된 출발지에서 시·도 이름을 뽑아 줍니다.
+async function region(url, origin, env) {
+  const query = url.searchParams.get('query')?.trim();
+  if (!query) return json({ error: '출발지를 입력해 주세요.' }, 400, origin, env);
+  if (!env.NAVER_MAP_CLIENT_ID || !env.NAVER_MAP_CLIENT_SECRET) return json({ error: '네이버 Maps 인증키가 설정되지 않았습니다.' }, 500, origin, env);
+  try {
+    const item = await geocode(query, env);
+    const sido = item.addressElements?.find((element) => element.types?.includes('SIDO'));
+    const name = sido?.longName || sido?.shortName || '';
+    if (!name) throw new Error(`출발지의 시·도를 확인할 수 없습니다: ${query}`);
+    return json({ query, sido: name, address: item.roadAddress || item.jibunAddress || '' }, 200, origin, env);
+  } catch (error) { return json({ error: error.message || '출발지 지역 조회에 실패했습니다.' }, 502, origin, env); }
+}
 
 async function places(url, origin, env) {
   const query = url.searchParams.get('query')?.trim();
