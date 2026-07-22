@@ -42,6 +42,10 @@ let editingId = null;
 let editorStep = 1;
 const staticMode = location.hostname.endsWith('.github.io') || location.protocol === 'file:' || new URLSearchParams(location.search).has('static');
 const staticStoreKey = 'gwangyang-travel-expense-data-v1';
+// 관리자 화면은 메뉴에 없고 ?admin 을 붙여야만 열립니다.
+const adminMode = new URLSearchParams(location.search).has('admin');
+// 마지막으로 읽은 배포본 기준값입니다. 저장할 때 이것과 같으면 덮어쓰기를 남기지 않습니다.
+let shippedBaseline = null;
 const defaultWorkerRouteUrl = 'https://expense-manager-route-proxy.gwangyang-expense.workers.dev/route';
 
 // 여비 기준과 차량 기준연비는 배포본(default-data.json)만을 따릅니다.
@@ -51,13 +55,33 @@ async function staticData() {
     if (!res.ok) throw new Error('기본 데이터를 불러오지 못했습니다.');
     return res.json();
   });
+  shippedBaseline = { settings: shipped.settings, vehicles: shipped.vehicles };
   const saved = localStorage.getItem(staticStoreKey);
-  const trips = saved ? (JSON.parse(saved).trips || []) : (shipped.trips || []);
-  return { ...shipped, trips };
+  const local = saved ? JSON.parse(saved) : {};
+  const trips = saved ? (local.trips || []) : (shipped.trips || []);
+  // overrides는 관리자 화면에서 저장한 이 브라우저 전용 값입니다. 없으면 배포본을 그대로 씁니다.
+  return {
+    ...shipped,
+    trips,
+    settings: { ...shipped.settings, ...(local.settings || {}) },
+    vehicles: local.vehicles || shipped.vehicles
+  };
 }
 
+// 배포본과 같은 값을 굳이 저장하면 이후 배포에서 기준이 바뀌어도 반영되지 않습니다.
+// 그래서 실제로 달라진 항목만 덮어쓰기로 남깁니다.
+function overrideOf(value, baseline) {
+  return JSON.stringify(value) === JSON.stringify(baseline) ? undefined : value;
+}
 function saveStaticData(data) {
-  try { localStorage.setItem(staticStoreKey, JSON.stringify({ trips: data.trips || [] })); }
+  const record = { trips: data.trips || [] };
+  if (shippedBaseline) {
+    const settings = overrideOf(data.settings, shippedBaseline.settings);
+    const vehicles = overrideOf(data.vehicles, shippedBaseline.vehicles);
+    if (settings) record.settings = settings;
+    if (vehicles) record.vehicles = vehicles;
+  }
+  try { localStorage.setItem(staticStoreKey, JSON.stringify(record)); }
   catch {
     // 호출부가 사진을 더 줄여 재시도할 수 있도록 저장 공간 부족을 구분해 알립니다.
     const error = new Error('브라우저 저장 공간이 부족합니다. 첨부파일 용량을 줄이거나 불필요한 증빙을 삭제해 주세요.');
@@ -91,6 +115,16 @@ async function staticRequest(url, options) {
     const attachment = { id: crypto.randomUUID(), name: body.name, type: /^data:([^;]+);/.exec(body.data || '')?.[1] || 'application/octet-stream', data: body.data, storedName: '', uploadedAt: new Date().toISOString() };
     trip.attachments = trip.attachments || []; trip.attachments.push(attachment);
     saveStaticData(data); return attachment;
+  }
+  if (path === '/api/admin' && options.method === 'POST') {
+    if (body.settings) data.settings = { ...data.settings, ...body.settings };
+    if (Array.isArray(body.vehicles)) data.vehicles = body.vehicles;
+    saveStaticData(data); return { ok: true };
+  }
+  if (path === '/api/admin/reset' && options.method === 'POST') {
+    // 덮어쓴 값을 지우고 배포본 기준으로 되돌립니다. 정산 건은 남깁니다.
+    localStorage.setItem(staticStoreKey, JSON.stringify({ trips: data.trips || [] }));
+    return { ok: true };
   }
   if (path.match(/^\/api\/attachments\/[^/]+$/) && options.method === 'DELETE') {
     const id = path.split('/')[3]; data.trips.forEach((trip) => { trip.attachments = (trip.attachments || []).filter((item) => item.id !== id); });
@@ -216,9 +250,10 @@ function summary(t) { const c=calculate(t), v=getVehicle(t.vehicleId); return `<
   </div><div class="notice">적용 규정: ${esc(state.settings.ruleVersion)} · 출력 시 적용 단가와 계산 근거가 정산 건에 저장됩니다.</div></div><div><div class="total-box"><span>최종 지급 산정액</span><b>${won(c.total)}</b><small>증빙 ${t.attachments?.length||0}건 · 원단위 절사 적용</small></div><div class="panel" style="margin-top:14px"><div class="panel-body"><b>출장 요약</b><p>${esc(t.employee)} · ${esc(t.department)}</p><p>${t.startDate} ~ ${t.endDate}</p><p>${esc(provinceName(t.province))} ${esc(t.city||'')} · ${esc(t.purpose)}</p></div></div></div></div>`; }
 
 function render() {
-  const titles={dashboard:'출장 정산 현황',editor:'출장 정산 작성'};
+  const titles={dashboard:'출장 정산 현황',editor:'출장 정산 작성',admin:'운영 기준 관리(숨김)'};
+  if(currentView==='admin'&&!adminMode)currentView='dashboard';
   $('#page-title').textContent=titles[currentView];
-  $('#app').innerHTML=({dashboard,editor}[currentView]||dashboard)();
+  $('#app').innerHTML=({dashboard,editor,admin}[currentView]||dashboard)();
   bind();
   if(currentView==='editor'&&editorStep===2) toggleTransport();
 }
@@ -246,6 +281,12 @@ function bind() {
   $('[name="province"]')?.addEventListener('change',(e)=>{const city=$('[name="city"]');if(!city)return;city.innerHTML=`<option value="">선택 안 함</option>${districtOptions(e.target.value,'')}`;currentTrip().city=''});
   $('[name="transport"]')?.addEventListener('change',toggleTransport);
   $('[name="vehicleId"]')?.addEventListener('change',(e)=>{const vehicle=getVehicle(e.target.value);const price=state.settings.fallbackFuel?.[vehicle?.fuel]||0;const priceInput=$('[name="oilPrice"]');if(priceInput)priceInput.value=price;const trip=currentTrip();trip.oilPrice=price;trip.oilSource='기준단가';toast(`${vehicle?.name || fuelLabels[vehicle?.fuel]} 기준단가를 적용했습니다.`)});
+  $('#admin-form')?.addEventListener('submit',saveAdmin);
+  $('[data-action="add-vehicle"]')?.addEventListener('click',()=>{state.vehicles.push({id:crypto.randomUUID(),name:'새 차량 종류',fuel:'gasoline',efficiency:0,unit:'km/L',active:true});render()});
+  $('[data-action="key-test"]')?.addEventListener('click',testOpinetKey);
+  $('[data-action="admin-reset"]')?.addEventListener('click',async()=>{await request('/api/admin/reset',{method:'POST',body:'{}'});await load();toast('배포본 기준으로 되돌렸습니다.')});
+  $$('[data-remove-vehicle]').forEach(b=>b.onclick=()=>{state.vehicles.splice(Number(b.dataset.removeVehicle),1);render()});
+  $$('[data-vehicle] select').forEach(sel=>sel.onchange=()=>{const row=sel.closest('[data-vehicle]');const unitInput=$$('input',row)[2];if(unitInput)unitInput.value=efficiencyUnits[sel.value]});
   $('[data-action="oil"]')?.addEventListener('click',lookupOil);
   $('[data-action="distance"]')?.addEventListener('click',lookupDistance);
   $('[data-action="place-search"]')?.addEventListener('click',searchPlaces);
@@ -326,4 +367,29 @@ function expenseSheet(t,v,c){
 function printTrip(t,v,c){const attachments=t.attachments||[], images=attachments.filter(a=>a.type.startsWith('image/')), documents=attachments.filter(a=>!a.type.startsWith('image/'));let report=$('#print-report');if(!report){report=document.createElement('section');report.id='print-report';report.className='print-report';document.body.append(report)}report.innerHTML=`${expenseSheet(t,v,c)}${images.length?`<section class="evidence-sheet"><div class="evidence-sheet-head"><h2>증빙자료 사진대지</h2><span>총 ${images.length}건</span></div><div class="photo-grid">${images.map(a=>`<figure class="photo-card"><div class="photo-frame"><img src="${attachmentUrl(a)}" alt="${esc(a.name)}"></div><figcaption><b>${esc(a.name)}</b><span>등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')}</span></figcaption></figure>`).join('')}</div></section>`:''}${documents.length?`<section class="document-proof"><h2>원본 파일 증빙</h2><p>아래 PDF 증빙은 사진대지와 함께 원본 파일로 보관됩니다.</p><ol>${documents.map(a=>`<li>${esc(a.name)} <span>(등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')})</span></li>`).join('')}</ol></section>`:''}`;window.print()}
 
 $('#nav').addEventListener('click',(e)=>{const b=e.target.closest('button[data-view]');if(b)setView(b.dataset.view)});
+// ?admin 으로 들어왔을 때만 메뉴에 관리자 항목을 붙이고 그 화면으로 시작합니다.
+if(adminMode){const b=document.createElement('button');b.dataset.view='admin';b.innerHTML='<span>⚙</span> 관리자 설정';$('#nav').append(b);currentView='admin'}
 load().catch(e=>{document.querySelector('#app').innerHTML=`<div class="panel"><div class="empty">${esc(e.message)}<br>서버를 다시 실행해 주세요.</div></div>`});
+
+function admin() { const s=state.settings; return `<form id="admin-form"><div class="admin-grid"><div class="panel"><div class="panel-head"><h2>여비 기준</h2></div><div class="panel-body"><div class="form-grid">
+    ${input('dailyRate','일비(1일)',s.dailyRate,'number','half')}${input('mealRate','식비(1일)',s.mealRate,'number','half')}
+    ${input('capSeoul','숙박 상한·서울(1박)',s.lodgingCaps?.seoul,'number','third')}${input('capMetro','숙박 상한·광역시(1박)',s.lodgingCaps?.metro,'number','third')}${input('capOther','숙박 상한·기타(1박)',s.lodgingCaps?.other,'number','third')}
+    ${input('ruleVersion','규정 버전',s.ruleVersion,'text','full')}
+  </div></div></div><div class="panel"><div class="panel-head"><h2>오피넷·대체 유가</h2></div><div class="panel-body"><div class="form-grid">
+    <input type="hidden" name="routeApiUrl" value="${esc(s.routeApiUrl || defaultWorkerRouteUrl)}">
+    <div class="field full notice">지도·오피넷 조회 Worker는 자동 연결됩니다. 인증키는 Cloudflare Worker에 보관되므로 여기에 입력할 필요가 없습니다.</div>
+    <div class="field full"><button type="button" class="btn btn-secondary" data-action="key-test">유가 조회 연결 테스트</button><span id="key-test-result" class="helper" style="display:inline-block;margin-left:10px">Worker를 통해 오피넷 응답을 확인합니다.</span></div>
+    ${input('gasoline','휘발유 단가(원/L)',s.fallbackFuel?.gasoline,'number')}${input('diesel','경유 단가(원/L)',s.fallbackFuel?.diesel,'number')}${input('lpg','LPG 단가(원/L)',s.fallbackFuel?.lpg,'number')}
+    ${input('hybrid','하이브리드 단가(원/L)',s.fallbackFuel?.hybrid,'number')}
+    ${input('electric','전기 단가(원/kWh)',s.fallbackFuel?.electric,'number')}${input('hydrogen','수소 단가(원/kg)',s.fallbackFuel?.hydrogen,'number')}
+    <div class="field full notice">휘발유·경유·LPG·하이브리드는 오피넷 조회를 시도하며, 지역 유가는 <b>출발지 시·도</b> 기준으로 조회합니다. 출발지에서 시·도를 확인하지 못하면 출장 시·도로 조회합니다. 하이브리드는 기본적으로 휘발유 가격을 사용합니다. 전기·수소는 관리자 기준단가를 적용합니다.</div>
+  </div></div></div></div>
+  <div class="panel"><div class="panel-head"><h2>차량 종류별 기준연비</h2><button type="button" class="btn btn-secondary btn-small" data-action="add-vehicle">＋ 종류 추가</button></div><div class="panel-body"><div class="notice" style="margin-bottom:12px">차량 종류는 휘발유·경유·LPG·하이브리드·전기·수소로 관리합니다. 각 유형의 기준연비는 운영 기준에 맞게 관리자가 수정할 수 있습니다.</div><div id="vehicles">${vehicleRows()}</div></div></div>
+  <div class="field full notice">이 화면은 메뉴에 없으며 주소 뒤에 <b>?admin</b>을 붙여야 열립니다. 여기서 저장한 값은 <b>이 브라우저에만</b> 적용되고 다른 사용자에게는 배포본 기준이 그대로 보입니다. 모두에게 반영하려면 <b>public/default-data.json</b>을 고쳐 배포해야 합니다.</div>
+  <div class="actions"><button type="button" class="btn btn-secondary" data-action="admin-reset">배포본 값으로 되돌리기</button><button class="btn btn-primary" type="submit">관리자 설정 저장</button></div></form>`; }
+
+function vehicleRows() { return state.vehicles.map((v,i)=>`<div class="vehicle-card" data-vehicle="${i}"><input value="${esc(v.name || fuelLabels[v.fuel])}" aria-label="차량 종류명" placeholder="예: 전기차"><select aria-label="연료 유형">${Object.entries(fuelLabels).map(([x,l])=>`<option value="${x}" ${x===v.fuel?'selected':''}>${l}</option>`).join('')}</select><input type="number" step="0.01" min="0" value="${v.efficiency}" aria-label="기준연비" placeholder="기준연비 (소수점 둘째 자리)"><input value="${v.unit || efficiencyUnits[v.fuel]}" aria-label="연비 단위" readonly><button type="button" class="btn btn-danger btn-small" data-remove-vehicle="${i}">삭제</button></div>`).join(''); }
+
+async function saveAdmin(e){e.preventDefault();const f=new FormData(e.currentTarget);const rows=$$('[data-vehicle]').map((r,i)=>{const fuel=$('select',r).value;return{id:state.vehicles[i].id||crypto.randomUUID(),name:$$('input',r)[0].value,fuel,efficiency:Number($$('input',r)[1].value),unit:efficiencyUnits[fuel],active:true}});const settings={dailyRate:Number(f.get('dailyRate')),mealRate:Number(f.get('mealRate')),lodgingCaps:{seoul:Number(f.get('capSeoul')),metro:Number(f.get('capMetro')),other:Number(f.get('capOther'))},ruleVersion:f.get('ruleVersion'),routeApiUrl:f.get('routeApiUrl').trim(),fallbackFuel:{gasoline:Number(f.get('gasoline')),diesel:Number(f.get('diesel')),lpg:Number(f.get('lpg')),hybrid:Number(f.get('hybrid')),electric:Number(f.get('electric')),hydrogen:Number(f.get('hydrogen'))}};await request('/api/admin',{method:'POST',body:JSON.stringify({settings,vehicles:rows})});await load();toast('관리자 설정을 저장했습니다.')}
+
+async function testOpinetKey(){const result=$('#key-test-result');result.textContent='확인 중…';try{const today=new Date().toISOString().slice(0,10);const proxy=workerUrl('/opinet');let data;if(proxy){proxy.search=new URLSearchParams({area:'20',fuel:'gasoline',date:today}).toString();data=await workerJson(proxy,'오피넷 조회에 실패했습니다.')}else data=await request(`/api/opinet?area=20&fuel=gasoline&date=${today}`);result.textContent=`연결 정상 · ${data.source} ${won(data.price)}/L`;result.style.color='#08745f'}catch(e){result.textContent=`연결 실패 · ${e.message}`;result.style.color='#c23b4a'}}
