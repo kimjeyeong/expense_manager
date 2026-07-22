@@ -364,7 +364,16 @@ function expenseSheet(t,v,c){
       <td class="money">${won(c.total)}</td><td></td></tr></tbody></table>
     <div class="sheet-foot"><span>광양시 ${esc(t.department)}</span><span>1/1</span><span>${esc(t.employee)} ${printStamp()}</span></div></section>`;
 }
-function printTrip(t,v,c){const attachments=t.attachments||[], images=attachments.filter(a=>a.type.startsWith('image/')), documents=attachments.filter(a=>!a.type.startsWith('image/'));let report=$('#print-report');if(!report){report=document.createElement('section');report.id='print-report';report.className='print-report';document.body.append(report)}report.innerHTML=`${expenseSheet(t,v,c)}${images.length?`<section class="evidence-sheet"><div class="evidence-sheet-head"><h2>증빙자료 사진대지</h2><span>총 ${images.length}건</span></div><div class="photo-grid">${images.map(a=>`<figure class="photo-card"><div class="photo-frame"><img src="${attachmentUrl(a)}" alt="${esc(a.name)}"></div><figcaption><b>${esc(a.name)}</b><span>등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')}</span></figcaption></figure>`).join('')}</div></section>`:''}${documents.length?`<section class="document-proof"><h2>원본 파일 증빙</h2><p>아래 PDF 증빙은 사진대지와 함께 원본 파일로 보관됩니다.</p><ol>${documents.map(a=>`<li>${esc(a.name)} <span>(등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')})</span></li>`).join('')}</ol></section>`:''}`;window.print()}
+// 이미지는 data URL이라도 비동기로 그려집니다. 곧바로 print()를 부르면
+// 사진대지의 사진 자리가 빈 채로 인쇄됩니다. 다 그려질 때까지 기다립니다.
+function waitForImages(root, timeout = 8000) {
+  const pending = $$('img', root).filter((img) => !img.complete || !img.naturalWidth);
+  if (!pending.length) return Promise.resolve();
+  const loaded = Promise.all(pending.map((img) => new Promise((done) => { img.onload = img.onerror = done; })));
+  // 한 장이 깨져도 인쇄 자체가 막히지 않도록 상한을 둡니다.
+  return Promise.race([loaded, new Promise((done) => setTimeout(done, timeout))]);
+}
+async function printTrip(t,v,c){const attachments=t.attachments||[], images=attachments.filter(a=>a.type.startsWith('image/')), documents=attachments.filter(a=>!a.type.startsWith('image/'));let report=$('#print-report');if(!report){report=document.createElement('section');report.id='print-report';report.className='print-report';document.body.append(report)}report.innerHTML=`${expenseSheet(t,v,c)}${images.length?`<section class="evidence-sheet"><div class="evidence-sheet-head"><h2>증빙자료 사진대지</h2><span>총 ${images.length}건</span></div><div class="photo-grid">${images.map(a=>`<figure class="photo-card"><div class="photo-frame"><img src="${attachmentUrl(a)}" alt="${esc(a.name)}"></div><figcaption><b>${esc(a.name)}</b><span>등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')}</span></figcaption></figure>`).join('')}</div></section>`:''}${documents.length?`<section class="document-proof"><h2>원본 파일 증빙</h2><p>아래 PDF 증빙은 사진대지와 함께 원본 파일로 보관됩니다.</p><ol>${documents.map(a=>`<li>${esc(a.name)} <span>(등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')})</span></li>`).join('')}</ol></section>`:''}`;await waitForImages(report);window.print()}
 
 $('#nav').addEventListener('click',(e)=>{const b=e.target.closest('button[data-view]');if(b)setView(b.dataset.view)});
 // ?admin 으로 들어왔을 때만 메뉴에 관리자 항목을 붙이고 그 화면으로 시작합니다.
