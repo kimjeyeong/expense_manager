@@ -344,7 +344,7 @@ function printStamp(){const d=new Date(),p=n=>String(n).padStart(2,'0');return `
 function expenseSheet(t,v,c){
   const fare=Math.floor(c.fuel+c.transit), km=Number(t.distance||0);
   const local=0; // 현지교통비: 앱에 대응 입력이 없어 0으로 출력합니다.
-  return `<section class="expense-sheet"><h1><span>여비 지급명세서</span></h1><table>
+  return `<section class="expense-sheet"><h1><span>여비 지급명세서</span></h1><table><colgroup><col style="width:8%"><col style="width:10%"><col style="width:9%"><col style="width:8%"><col style="width:8%"><col style="width:5%"><col style="width:7%"><col style="width:6%"><col style="width:6%"><col style="width:6%"><col style="width:5%"><col style="width:5%"><col style="width:6%"><col style="width:6%"><col style="width:5%"></colgroup>
     <thead><tr><th>출장자</th><th rowspan="2">출장목적</th><th>출장월일<br>(출장시간)</th><th colspan="4">출장지(경로요금 포함)</th><th rowspan="2">식비</th><th rowspan="2">숙박비</th><th rowspan="2">일비</th><th rowspan="2">현지<br>교통비</th><th rowspan="2">기타</th><th rowspan="2">계</th><th rowspan="2">청구액및<br>수령액</th><th rowspan="2">영수인<br>(청구액외<br>포기함)</th></tr>
     <tr><th>소속/직급/성명</th><th>공무용차량</th><th>출발</th><th>도착</th><th>종별</th><th>거리/요금</th></tr></thead>
     <tbody><tr>
