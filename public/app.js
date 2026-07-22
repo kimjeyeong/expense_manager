@@ -29,8 +29,6 @@ const districts = {
   울산:['중구','남구','동구','북구','울주군'],
   세종:['세종시']
 };
-// 통합 이전 광주광역시 5개 구입니다. 숙박 상한을 종전 광역시 기준으로 유지하기 위해 구분합니다.
-const gwangjuDistricts = new Set(['동구','서구','남구','북구','광산구']);
 function provinceName(key) { return provinceLabels[key] || key || ''; }
 function districtOptions(province, city) { return (districts[province] || []).map((x) => `<option value="${x}" ${x===city?'selected':''}>${x}</option>`).join(''); }
 const fuelLabels = { gasoline:'휘발유차', diesel:'경유차', lpg:'LPG차', hybrid:'하이브리드차', electric:'전기차', hydrogen:'수소차' };
@@ -115,11 +113,11 @@ async function load() { state = await request('/api/data'); render(); }
 function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2400); }
 function setView(view) { currentView = view; if (view === 'editor' && !editingId) editorStep = 1; $$('#nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === view)); render(); }
 function daysInclusive(start, end) { if (!start || !end) return 1; return Math.max(1, Math.floor((new Date(end) - new Date(start)) / 86400000) + 1); }
-function lodgingCap(province, city) {
+function lodgingCap(province) {
   const c = state.settings.lodgingCaps || {};
   if (province === '서울') return c.seoul;
-  // 통합 이후에는 시·도만으로 광역시 여부를 가릴 수 없어, 옛 광주 5개 구는 시·군·구로 판정합니다.
-  if (province === '전남광주') return gwangjuDistricts.has(city) ? c.metro : c.other;
+  // 통합특별시는 옛 광주 5개 구를 포함해 전역에 기타 상한을 적용합니다.
+  if (province === '전남광주') return c.other;
   return metro.has(province) ? c.metro : c.other;
 }
 function getVehicle(id) { return state.vehicles.find((v) => v.id === id); }
@@ -132,7 +130,7 @@ function calculate(t) {
   const mealRate = Number(state.settings.mealRate || 0);
   const providedMeals = Math.min(days * 3, Math.max(0, Number(t.mealProvided || 0)));
   const meals = Math.max(0, days * mealRate - providedMeals * (mealRate / 3));
-  const cap = Number(lodgingCap(t.province, t.city) || 0) * Number(t.nights || 0);
+  const cap = Number(lodgingCap(t.province) || 0) * Number(t.nights || 0);
   const lodging = Math.min(Number(t.lodgingActual || 0), cap);
   const vehicle = getVehicle(t.vehicleId);
   const fuel = t.transport === 'car' && vehicle?.efficiency ? Number(t.distance || 0) / Number(vehicle.efficiency) * Number(t.oilPrice || 0) : 0;
@@ -195,7 +193,7 @@ function editor() {
       <div class="field full transit-only notice">철도·버스 운임은 실제 결제액을 입력하고 다음 단계에서 승차권을 첨부합니다. 자동 운임표는 참고값으로만 운영하는 것이 안전합니다.</div>
       <h3 class="section-title">숙박·식비</h3>
       ${input('nights','숙박일수',t.nights,'number')}${input('lodgingActual','숙박 실제 결제액',t.lodgingActual,'number')}${input('mealProvided','무료 제공 식사 횟수(조·중·석)',t.mealProvided,'number')}
-      <div class="field full notice ${Number(t.lodgingActual||0)>c.cap?'warn':''}">선택 지역의 숙박비 상한은 ${won(lodgingCap(t.province, t.city))}/박입니다. 현재 인정 한도 ${won(c.cap)}, 지급 산정액 ${won(c.lodging)}${Number(t.lodgingActual||0)>c.cap?' — 초과액은 자동 제외됩니다.':''}</div>
+      <div class="field full notice ${Number(t.lodgingActual||0)>c.cap?'warn':''}">선택 지역의 숙박비 상한은 ${won(lodgingCap(t.province))}/박입니다. 현재 인정 한도 ${won(c.cap)}, 지급 산정액 ${won(c.lodging)}${Number(t.lodgingActual||0)>c.cap?' — 초과액은 자동 제외됩니다.':''}</div>
       <div class="field full notice">관용차 이용 시 해당 출장일의 일비는 50%만 지급합니다. 식비는 주최기관·교육기관·행사비·법인카드 등으로 본인 부담 없이 제공된 조식·중식·석식만 입력하며, 1식마다 1일 식비의 3분의 1을 감액합니다. 다과·음료는 식사에 포함하지 않습니다.</div>
     </div>`;
   }
