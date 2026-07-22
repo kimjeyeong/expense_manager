@@ -31,7 +31,12 @@ async function staticData() {
 
 function saveStaticData(data) {
   try { localStorage.setItem(staticStoreKey, JSON.stringify(data)); }
-  catch { throw new Error('브라우저 저장 공간이 부족합니다. 첨부파일 용량을 줄이거나 불필요한 증빙을 삭제해 주세요.'); }
+  catch {
+    // 호출부가 사진을 더 줄여 재시도할 수 있도록 저장 공간 부족을 구분해 알립니다.
+    const error = new Error('브라우저 저장 공간이 부족합니다. 첨부파일 용량을 줄이거나 불필요한 증빙을 삭제해 주세요.');
+    error.code = 'QUOTA';
+    throw error;
+  }
 }
 
 async function staticRequest(url, options) {
@@ -247,7 +252,7 @@ async function lookupOil(){try{const t=serializeTrip(),v=getVehicle(t.vehicleId)
 async function lookupDistance(){const result=$('#distance-result');try{const t=serializeTrip();if(!t.origin?.trim()||!t.destination?.trim())throw new Error('출발지와 상세 출장지를 모두 입력해 주세요.');result.textContent='네이버 지도에서 경로를 찾는 중…';const url=workerUrl('/route');url.searchParams.set('origin',t.origin);url.searchParams.set('destination',t.destination);const data=await workerJson(url,'거리 조회에 실패했습니다.');const input=$('[name="distance"]');input.value=data.roundTripKm;const trip=currentTrip();trip.distance=Number(data.roundTripKm);trip.origin=data.origin;trip.distanceSource=`네이버 지도 왕복 (${data.oneWayKm}km × 2)`;result.textContent=`편도 ${data.oneWayKm}km · 왕복 ${data.roundTripKm}km을 적용했습니다.`;toast('네이버 지도 왕복 거리를 입력했습니다.')}catch(error){result.textContent=error.message;toast(error.message)}}
 async function testOpinetKey(){const result=$('#key-test-result');result.textContent='확인 중…';try{const today=new Date().toISOString().slice(0,10);const proxy=workerUrl('/opinet');let data;if(proxy){proxy.search=new URLSearchParams({area:'20',fuel:'gasoline',date:today}).toString();data=await workerJson(proxy,'오피넷 조회에 실패했습니다.')}else data=await request(`/api/opinet?area=20&fuel=gasoline&date=${today}`);result.textContent=`연결 정상 · ${data.source} ${won(data.price)}/L`;result.style.color='#08745f'}catch(e){result.textContent=`연결 실패 · ${e.message}`;result.style.color='#c23b4a'}}
 // 정적 모드에서만 의미가 있는 안내입니다. 서버 모드는 파일을 디스크에 저장합니다.
-function storageHelper(){if(!staticMode)return '';const used=(localStorage.getItem(staticStoreKey)||'').length;return `<p class="helper">사진은 긴 변 1600px·JPEG로 줄여 저장합니다(원본 최대 12MB, PDF 4MB). 현재 브라우저 저장 사용량 약 ${sizeText(used)}입니다.</p>`}
+function storageHelper(){if(!staticMode)return '';const used=(localStorage.getItem(staticStoreKey)||'').length;return `<p class="helper">사진은 긴 변 1600px·JPEG로 줄여 저장하고, 저장 공간이 부족하면 들어갈 때까지 자동으로 더 줄입니다(원본 최대 12MB, PDF 4MB). 현재 브라우저 저장 사용량 약 ${sizeText(used)}입니다.</p>`}
 function readDataUrl(file){return new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(file)})}
 // GitHub Pages 모드는 증빙을 localStorage에 base64로 담습니다. 브라우저 할당량(보통 5~10MB)은
 // 코드로 못 늘리므로, 영수증 사진을 읽을 수 있는 선까지 줄여 담을 수 있는 건수를 늘립니다.
@@ -257,9 +262,26 @@ function sizeText(bytes){return bytes>=1024*1024?`${(bytes/1024/1024).toFixed(1)
 async function uploadFiles(e){try{let t=await saveTrip();let saved=0;for(const file of e.target.files){const isImage=file.type.startsWith('image/');
   // 사진은 압축해서 담으므로 원본이 커도 받습니다. PDF는 줄일 수 없어 정적 모드에서만 제한을 둡니다.
   const maxSize=!staticMode||isImage?12:4;if(file.size>maxSize*1024*1024){toast(`${file.name}: ${maxSize}MB를 초과합니다.`);continue}
-  const data=staticMode&&isImage?await compressImage(file):await readDataUrl(file);saved+=Math.max(0,file.size-dataUrlBytes(data));
-  const a=await request('/api/attachments',{method:'POST',body:JSON.stringify({tripId:t.id,name:file.name,data})});t.attachments=t.attachments||[];t.attachments.push(a)}
+  const a=await storeAttachment(t,file,isImage);if(!a)continue;if(staticMode&&isImage)saved+=Math.max(0,file.size-dataUrlBytes(a.data));t.attachments=t.attachments||[];t.attachments.push(a)}
   await load();editingId=t.id;render();toast(saved>0?`증빙자료를 첨부했습니다. 사진을 ${sizeText(saved)} 줄여 저장했습니다.`:'증빙자료를 첨부했습니다.')}catch(error){toast(error.message)}}
+// 저장 공간이 부족하면 실패시키지 않고 사진을 한 단계씩 더 줄여 다시 시도합니다.
+// 실패한 저장은 localStorage를 건드리지 않으므로(staticData가 매번 새로 읽음) 그대로 재시도해도 안전합니다.
+const compressionSteps=[[1600,0.72],[1200,0.6],[900,0.5],[640,0.4],[480,0.35],[360,0.3]];
+async function storeAttachment(trip,file,isImage){
+  const attempts=staticMode&&isImage?compressionSteps:[null];
+  for(let i=0;i<attempts.length;i++){
+    const step=attempts[i];
+    const data=step?await compressImage(file,step[0],step[1]):await readDataUrl(file);
+    try{const saved=await request('/api/attachments',{method:'POST',body:JSON.stringify({tripId:trip.id,name:file.name,data})});if(step&&i>0)toast(`${file.name}: 저장 공간에 맞춰 ${step[0]}px로 더 줄였습니다.`);return saved}
+    catch(error){
+      if(error.code!=='QUOTA')throw error;
+      if(i<attempts.length-1)continue;
+      toast(step?`${file.name}: 최소 화질로도 저장 공간이 부족합니다. 예전 증빙을 삭제해 주세요.`:`${file.name}: 저장 공간이 부족합니다. PDF는 줄일 수 없으니 예전 증빙을 삭제해 주세요.`);
+      return null;
+    }
+  }
+  return null;
+}
 async function saveAdmin(e){e.preventDefault();const f=new FormData(e.currentTarget);const rows=$$('[data-vehicle]').map((r,i)=>{const fuel=$('select',r).value;return{id:state.vehicles[i].id||crypto.randomUUID(),name:$$('input',r)[0].value,fuel,efficiency:Number($$('input',r)[1].value),unit:efficiencyUnits[fuel],active:true}});const settings={dailyRate:Number(f.get('dailyRate')),mealRate:Number(f.get('mealRate')),lodgingCaps:{seoul:Number(f.get('capSeoul')),metro:Number(f.get('capMetro')),other:Number(f.get('capOther'))},ruleVersion:f.get('ruleVersion'),routeApiUrl:f.get('routeApiUrl').trim(),fallbackFuel:{gasoline:Number(f.get('gasoline')),diesel:Number(f.get('diesel')),lpg:Number(f.get('lpg')),hybrid:Number(f.get('hybrid')),electric:Number(f.get('electric')),hydrogen:Number(f.get('hydrogen'))}};await request('/api/admin',{method:'POST',body:JSON.stringify({settings,vehicles:rows})});await load();toast('관리자 설정을 저장했습니다.')}
 
 function openDetail(id){const t=state.trips.find(x=>x.id===id),c=calculate(t),v=getVehicle(t.vehicleId);const modal=document.createElement('div');modal.className='modal-backdrop';modal.innerHTML=`<div class="modal"><div class="panel"><div class="panel-head"><div><h2>${esc(t.purpose)}</h2><div class="helper">${t.startDate} ~ ${t.endDate}</div></div><button class="btn btn-secondary btn-small" data-close>닫기</button></div><div class="panel-body"><div class="detail-grid"><div class="detail-item"><small>출장자</small><b>${esc(t.employee)} · ${esc(t.department)}</b></div><div class="detail-item"><small>출장지</small><b>${esc(t.province)} ${esc(t.city||'')}</b></div><div class="detail-item"><small>산정액</small><b>${won(c.total)}</b></div></div><div style="margin-top:20px">${summary(t)}</div><h3>처리 이력</h3><div class="history">${(t.history||[]).map(h=>`<div class="history-item"><b>${esc(h.action)} · ${esc(h.actor)}</b><small>${new Date(h.at).toLocaleString('ko-KR')} ${h.note?'· '+esc(h.note):''}</small></div>`).join('')||'<span class="helper">이력이 없습니다.</span>'}</div><div class="actions"><button class="btn btn-secondary" data-edit>수정</button><button class="btn btn-primary" data-print>총괄 PDF 출력</button></div></div></div></div>`;document.body.append(modal);modal.onclick=e=>{if(e.target===modal||e.target.hasAttribute('data-close'))modal.remove()};$('[data-edit]',modal)?.addEventListener('click',()=>{modal.remove();editingId=id;editorStep=1;setView('editor')});$('[data-print]',modal).onclick=()=>printTrip(t,v,c)}
