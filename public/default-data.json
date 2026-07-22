@@ -1,0 +1,19 @@
+{
+  "settings": {
+    "dailyRate": 25000,
+    "mealRate": 25000,
+    "lodgingCaps": { "seoul": 100000, "metro": 80000, "other": 70000 },
+    "fallbackFuel": { "gasoline": 1700, "diesel": 1550, "lpg": 1100, "hybrid": 1700, "electric": 350, "hydrogen": 9900 },
+    "ruleVersion": "공무원 여비 규정 기준",
+    "opinetKey": ""
+  },
+  "vehicles": [
+    { "id": "type-gasoline", "name": "휘발유차", "fuel": "gasoline", "efficiency": 12, "unit": "km/L", "active": true },
+    { "id": "type-diesel", "name": "경유차", "fuel": "diesel", "efficiency": 14, "unit": "km/L", "active": true },
+    { "id": "type-lpg", "name": "LPG차", "fuel": "lpg", "efficiency": 9, "unit": "km/L", "active": true },
+    { "id": "type-hybrid", "name": "하이브리드차", "fuel": "hybrid", "efficiency": 18, "unit": "km/L", "active": true },
+    { "id": "type-electric", "name": "전기차", "fuel": "electric", "efficiency": 5, "unit": "km/kWh", "active": true },
+    { "id": "type-hydrogen", "name": "수소차", "fuel": "hydrogen", "efficiency": 100, "unit": "km/kg", "active": true }
+  ],
+  "trips": []
+}

@@ -12,8 +12,65 @@ let state = { settings: {}, vehicles: [], trips: [] };
 let currentView = 'dashboard';
 let editingId = null;
 let editorStep = 1;
+const staticMode = location.hostname.endsWith('.github.io') || location.protocol === 'file:' || new URLSearchParams(location.search).has('static');
+const staticStoreKey = 'gwangyang-travel-expense-data-v1';
+
+async function staticData() {
+  const saved = localStorage.getItem(staticStoreKey);
+  if (saved) return JSON.parse(saved);
+  const defaults = await fetch('./default-data.json').then((res) => {
+    if (!res.ok) throw new Error('기본 데이터를 불러오지 못했습니다.');
+    return res.json();
+  });
+  localStorage.setItem(staticStoreKey, JSON.stringify(defaults));
+  return defaults;
+}
+
+function saveStaticData(data) {
+  try { localStorage.setItem(staticStoreKey, JSON.stringify(data)); }
+  catch { throw new Error('브라우저 저장 공간이 부족합니다. 첨부파일 용량을 줄이거나 불필요한 증빙을 삭제해 주세요.'); }
+}
+
+async function staticRequest(url, options) {
+  const path = new URL(url, location.origin).pathname;
+  const body = options.body ? JSON.parse(options.body) : {};
+  const data = await staticData();
+  if (path === '/api/data') return data;
+  if (path === '/api/opinet') throw new Error('GitHub Pages에서는 오피넷 자동 조회를 지원하지 않습니다. 관리자 기준단가를 사용합니다.');
+  if (path === '/api/trips' && options.method === 'POST') {
+    const trip = { ...body, id: body.id || crypto.randomUUID(), updatedAt: new Date().toISOString(), createdAt: body.createdAt || new Date().toISOString() };
+    const index = data.trips.findIndex((item) => item.id === trip.id);
+    if (index >= 0) data.trips[index] = trip; else data.trips.unshift(trip);
+    saveStaticData(data); return trip;
+  }
+  if (path.match(/^\/api\/trips\/[^/]+\/status$/) && options.method === 'POST') {
+    const id = path.split('/')[3], trip = data.trips.find((item) => item.id === id);
+    if (!trip) throw new Error('출장 정산 건을 찾을 수 없습니다.');
+    trip.status = body.status; trip.history = trip.history || [];
+    trip.history.push({ at: new Date().toISOString(), action: body.action || body.status, actor: body.actor || '회계담당자', note: body.note || '' });
+    saveStaticData(data); return trip;
+  }
+  if (path === '/api/attachments' && options.method === 'POST') {
+    const trip = data.trips.find((item) => item.id === body.tripId);
+    if (!trip) throw new Error('먼저 출장 정산 건을 저장해 주세요.');
+    const attachment = { id: crypto.randomUUID(), name: body.name, type: /^data:([^;]+);/.exec(body.data || '')?.[1] || 'application/octet-stream', data: body.data, storedName: '', uploadedAt: new Date().toISOString() };
+    trip.attachments = trip.attachments || []; trip.attachments.push(attachment);
+    saveStaticData(data); return attachment;
+  }
+  if (path.match(/^\/api\/attachments\/[^/]+$/) && options.method === 'DELETE') {
+    const id = path.split('/')[3]; data.trips.forEach((trip) => { trip.attachments = (trip.attachments || []).filter((item) => item.id !== id); });
+    saveStaticData(data); return { ok: true };
+  }
+  if (path === '/api/admin' && options.method === 'POST') {
+    if (body.settings) data.settings = { ...data.settings, ...body.settings };
+    if (Array.isArray(body.vehicles)) data.vehicles = body.vehicles;
+    saveStaticData(data); return { ok: true };
+  }
+  throw new Error('지원하지 않는 요청입니다.');
+}
 
 async function request(url, options = {}) {
+  if (staticMode) return staticRequest(url, options);
   const res = await fetch(url, { headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || '처리 중 오류가 발생했습니다.');
@@ -100,7 +157,8 @@ function editor() {
   return `${stepper()}<form id="trip-form"><div class="panel"><div class="panel-head"><h2>${editingId?'출장 정산 수정':'새 출장 정산'}</h2><span class="status status-${t.status}">${statusLabel[t.status] || '작성중'}</span></div><div class="panel-body">${body}</div></div><div class="actions"><button type="button" class="btn btn-secondary" data-action="cancel">목록으로</button><div class="actions-right">${editorStep>1?'<button type="button" class="btn btn-secondary" data-action="prev">이전</button>':''}<button type="button" class="btn btn-secondary" data-action="save">임시저장</button>${editorStep<4?'<button type="button" class="btn btn-primary" data-action="next">다음</button>':'<button type="button" class="btn btn-primary" data-action="complete">총괄 PDF 출력</button>'}</div></div></form>`;
 }
 
-function attachmentList(t) { const list=t.attachments||[]; return `<div class="attachment-list">${list.length?list.map((a,i)=>`<div class="attachment"><div><a href="/files/${a.storedName}" target="_blank">${i+1}. ${esc(a.name)}</a><div class="helper">${new Date(a.uploadedAt).toLocaleString('ko-KR')}</div></div><button type="button" class="btn btn-danger btn-small" data-delete-attachment="${a.id}">삭제</button></div>`).join(''):'<div class="empty">첨부된 증빙이 없습니다.</div>'}</div>`; }
+function attachmentUrl(a) { return a.data || `/files/${encodeURIComponent(a.storedName)}`; }
+function attachmentList(t) { const list=t.attachments||[]; return `<div class="attachment-list">${list.length?list.map((a,i)=>`<div class="attachment"><div><a href="${attachmentUrl(a)}" target="_blank">${i+1}. ${esc(a.name)}</a><div class="helper">${new Date(a.uploadedAt).toLocaleString('ko-KR')}</div></div><button type="button" class="btn btn-danger btn-small" data-delete-attachment="${a.id}">삭제</button></div>`).join(''):'<div class="empty">첨부된 증빙이 없습니다.</div>'}</div>`; }
 
 function summary(t) { const c=calculate(t), v=getVehicle(t.vehicleId); return `<div class="summary-grid"><div><div class="calc-list">
     <div class="calc-row"><div><b>일비</b><small>${c.days}일 × ${won(state.settings.dailyRate)}${c.dailyRateFactor===0.5?' × 50%(관용차)':''}</small></div><span>${c.dailyRateFactor===0.5?'관용차 감액':'규정 정액'}</span><strong>${won(c.daily)}</strong></div>
@@ -170,12 +228,12 @@ function bind() {
 function saveLocal(){const t=serializeTrip();const i=state.trips.findIndex(x=>x.id===t.id);if(i>=0)state.trips[i]=t;else{t.id=t.id||crypto.randomUUID();editingId=t.id;state.trips.unshift(t)}}
 async function lookupOil(){try{const t=serializeTrip(),v=getVehicle(t.vehicleId);if(['electric','hydrogen'].includes(v?.fuel)){const price=state.settings.fallbackFuel?.[v.fuel]||0;$('[name="oilPrice"]').value=price;currentTrip().oilSource='관리자 기준단가';toast(`${v.name || fuelLabels[v.fuel]} 기준단가 ${won(price)}/${energyUnits[v.fuel]}를 적용했습니다.`);return}const area=provinceCodes[t.province]||'';const result=await request(`/api/opinet?area=${area}&fuel=${v?.fuel||'gasoline'}&date=${t.startDate}`);$('[name="oilPrice"]').value=result.price;const cur=currentTrip();cur.oilPrice=result.price;cur.oilSource=`${result.source} (${result.tradeDate})`;toast(result.notice||`${result.source} ${won(result.price)}/${energyUnits[v?.fuel]||'L'}를 적용했습니다.`)}catch(e){const t=serializeTrip(),v=getVehicle(t.vehicleId);const price=state.settings.fallbackFuel?.[v?.fuel||'gasoline']||0;$('[name="oilPrice"]').value=price;currentTrip().oilSource='관리자 기준단가';toast(`${e.message} 기준단가 ${won(price)}/${energyUnits[v?.fuel]||'L'}를 사용합니다.`)}}
 async function testOpinetKey(){const result=$('#key-test-result');result.textContent='확인 중…';try{const today=new Date().toISOString().slice(0,10);const data=await request(`/api/opinet?area=20&fuel=gasoline&date=${today}`);result.textContent=`연결 정상 · ${data.source} ${won(data.price)}/L`;result.style.color='#08745f'}catch(e){result.textContent=`연결 실패 · ${e.message}`;result.style.color='#c23b4a'}}
-async function uploadFiles(e){let t=await saveTrip();for(const file of e.target.files){if(file.size>12*1024*1024){toast(`${file.name}: 12MB를 초과합니다.`);continue}const data=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(file)});const a=await request('/api/attachments',{method:'POST',body:JSON.stringify({tripId:t.id,name:file.name,data})});t.attachments=t.attachments||[];t.attachments.push(a)}await load();editingId=t.id;render();toast('증빙자료를 첨부했습니다.')}
+async function uploadFiles(e){try{let t=await saveTrip();const maxSize=staticMode?2:12;for(const file of e.target.files){if(file.size>maxSize*1024*1024){toast(`${file.name}: ${maxSize}MB를 초과합니다.`);continue}const data=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(file)});const a=await request('/api/attachments',{method:'POST',body:JSON.stringify({tripId:t.id,name:file.name,data})});t.attachments=t.attachments||[];t.attachments.push(a)}await load();editingId=t.id;render();toast('증빙자료를 첨부했습니다.')}catch(error){toast(error.message)}}
 async function saveAdmin(e){e.preventDefault();const f=new FormData(e.currentTarget);const rows=$$('[data-vehicle]').map((r,i)=>{const fuel=$('select',r).value;return{id:state.vehicles[i].id||crypto.randomUUID(),name:$$('input',r)[0].value,fuel,efficiency:Number($$('input',r)[1].value),unit:efficiencyUnits[fuel],active:true}});const settings={dailyRate:Number(f.get('dailyRate')),mealRate:Number(f.get('mealRate')),lodgingCaps:{seoul:Number(f.get('capSeoul')),metro:Number(f.get('capMetro')),other:Number(f.get('capOther'))},ruleVersion:f.get('ruleVersion'),opinetKey:f.get('opinetKey'),fallbackFuel:{gasoline:Number(f.get('gasoline')),diesel:Number(f.get('diesel')),lpg:Number(f.get('lpg')),hybrid:Number(f.get('hybrid')),electric:Number(f.get('electric')),hydrogen:Number(f.get('hydrogen'))}};await request('/api/admin',{method:'POST',body:JSON.stringify({settings,vehicles:rows})});await load();toast('관리자 설정을 저장했습니다.')}
 
 function openDetail(id){const t=state.trips.find(x=>x.id===id),c=calculate(t),v=getVehicle(t.vehicleId);const modal=document.createElement('div');modal.className='modal-backdrop';modal.innerHTML=`<div class="modal"><div class="panel"><div class="panel-head"><div><h2>${esc(t.purpose)}</h2><div class="helper">${t.startDate} ~ ${t.endDate}</div></div><button class="btn btn-secondary btn-small" data-close>닫기</button></div><div class="panel-body"><div class="detail-grid"><div class="detail-item"><small>출장자</small><b>${esc(t.employee)} · ${esc(t.department)}</b></div><div class="detail-item"><small>출장지</small><b>${esc(t.province)} ${esc(t.city||'')}</b></div><div class="detail-item"><small>산정액</small><b>${won(c.total)}</b></div></div><div style="margin-top:20px">${summary(t)}</div><h3>처리 이력</h3><div class="history">${(t.history||[]).map(h=>`<div class="history-item"><b>${esc(h.action)} · ${esc(h.actor)}</b><small>${new Date(h.at).toLocaleString('ko-KR')} ${h.note?'· '+esc(h.note):''}</small></div>`).join('')||'<span class="helper">이력이 없습니다.</span>'}</div><div class="actions"><button class="btn btn-secondary" data-edit>수정</button><button class="btn btn-primary" data-print>총괄 PDF 출력</button></div></div></div></div>`;document.body.append(modal);modal.onclick=e=>{if(e.target===modal||e.target.hasAttribute('data-close'))modal.remove()};$('[data-edit]',modal)?.addEventListener('click',()=>{modal.remove();editingId=id;editorStep=1;setView('editor')});$('[data-print]',modal).onclick=()=>printTrip(t,v,c)}
 async function updateStatus(id,status,action,note=''){await request(`/api/trips/${id}/status`,{method:'POST',body:JSON.stringify({status,action,actor:'회계담당자',note})});$$('.modal-backdrop').forEach(x=>x.remove());await load();toast(`${action} 처리했습니다.`)}
-function printTrip(t,v,c){const attachments=t.attachments||[], images=attachments.filter(a=>a.type.startsWith('image/')), documents=attachments.filter(a=>!a.type.startsWith('image/'));let report=$('#print-report');if(!report){report=document.createElement('section');report.id='print-report';report.className='print-report';document.body.append(report)}report.innerHTML=`<h1>관외출장 여비 정산 결과보고서</h1><table><tr><th>출장자</th><td>${esc(t.employee)}</td><th>소속</th><td>${esc(t.department)}</td></tr><tr><th>출장기간</th><td>${t.startDate} ~ ${t.endDate}</td><th>출장지</th><td>${esc(t.province)} ${esc(t.city||'')}</td></tr><tr><th>출장목적</th><td colspan="3">${esc(t.purpose)}</td></tr></table><h2>여비 산정 내역</h2><table><tr><th>항목</th><th>산정 근거</th><th>금액</th></tr><tr><td>일비</td><td>${c.days}일 × ${won(state.settings.dailyRate)}${c.dailyRateFactor===0.5?' × 50%(관용차)':''}</td><td>${won(c.daily)}</td></tr><tr><td>식비</td><td>무료 제공식 ${c.providedMeals}회 × 1일 식비의 1/3 차감</td><td>${won(c.meals)}</td></tr><tr><td>숙박비</td><td>실제 ${won(t.lodgingActual)}, 한도 ${won(c.cap)}</td><td>${won(c.lodging)}</td></tr><tr><td>교통비</td><td>${t.transport==='car'?`${esc(v?.name || fuelLabels[v?.fuel])}: ${t.distance}km ÷ ${v?.efficiency}${v?.unit || efficiencyUnits[v?.fuel]} × ${won(t.oilPrice)}/${energyUnits[v?.fuel]} (${esc(t.oilSource)})`:t.transport==='official'?'관용차 이용 · 별도 운임 없음':'실제 운임'}</td><td>${won(t.transport==='car'?c.fuel:c.transit)}</td></tr><tr><td>통행·주차료</td><td>실비</td><td>${won(c.extras)}</td></tr><tr><td>절사 전 합계</td><td>전체 인정금액 합산</td><td>${won(c.grossTotal)}</td></tr><tr><td>원단위 절사</td><td>10원 미만 금액 버림</td><td>-${won(c.truncation)}</td></tr><tr><th colspan="2">최종 지급액</th><th>${won(c.total)}</th></tr></table><p>적용 기준: ${esc(state.settings.ruleVersion)} · 최종금액 원단위 절사</p><h2>증빙자료 목록</h2><table><tr><th>순번</th><th>파일명</th><th>등록일</th></tr>${attachments.length?attachments.map((a,i)=>`<tr><td>${i+1}</td><td>${esc(a.name)}</td><td>${new Date(a.uploadedAt).toLocaleDateString('ko-KR')}</td></tr>`).join(''):'<tr><td colspan="3" class="no-proof">첨부된 증빙자료가 없습니다.</td></tr>'}</table>${images.length?`<section class="evidence-sheet"><div class="evidence-sheet-head"><h2>증빙자료 사진대지</h2><span>총 ${images.length}건</span></div><div class="photo-grid">${images.map(a=>`<figure class="photo-card"><div class="photo-frame"><img src="/files/${encodeURIComponent(a.storedName)}" alt="${esc(a.name)}"></div><figcaption><b>${esc(a.name)}</b><span>등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')}</span></figcaption></figure>`).join('')}</div></section>`:''}${documents.length?`<section class="document-proof"><h2>원본 파일 증빙</h2><p>아래 PDF 증빙은 사진대지와 함께 원본 파일로 보관됩니다.</p><ol>${documents.map(a=>`<li>${esc(a.name)} <span>(등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')})</span></li>`).join('')}</ol></section>`:''}`;window.print()}
+function printTrip(t,v,c){const attachments=t.attachments||[], images=attachments.filter(a=>a.type.startsWith('image/')), documents=attachments.filter(a=>!a.type.startsWith('image/'));let report=$('#print-report');if(!report){report=document.createElement('section');report.id='print-report';report.className='print-report';document.body.append(report)}report.innerHTML=`<h1>관외출장 여비 정산 결과보고서</h1><table><tr><th>출장자</th><td>${esc(t.employee)}</td><th>소속</th><td>${esc(t.department)}</td></tr><tr><th>출장기간</th><td>${t.startDate} ~ ${t.endDate}</td><th>출장지</th><td>${esc(t.province)} ${esc(t.city||'')}</td></tr><tr><th>출장목적</th><td colspan="3">${esc(t.purpose)}</td></tr></table><h2>여비 산정 내역</h2><table><tr><th>항목</th><th>산정 근거</th><th>금액</th></tr><tr><td>일비</td><td>${c.days}일 × ${won(state.settings.dailyRate)}${c.dailyRateFactor===0.5?' × 50%(관용차)':''}</td><td>${won(c.daily)}</td></tr><tr><td>식비</td><td>무료 제공식 ${c.providedMeals}회 × 1일 식비의 1/3 차감</td><td>${won(c.meals)}</td></tr><tr><td>숙박비</td><td>실제 ${won(t.lodgingActual)}, 한도 ${won(c.cap)}</td><td>${won(c.lodging)}</td></tr><tr><td>교통비</td><td>${t.transport==='car'?`${esc(v?.name || fuelLabels[v?.fuel])}: ${t.distance}km ÷ ${v?.efficiency}${v?.unit || efficiencyUnits[v?.fuel]} × ${won(t.oilPrice)}/${energyUnits[v?.fuel]} (${esc(t.oilSource)})`:t.transport==='official'?'관용차 이용 · 별도 운임 없음':'실제 운임'}</td><td>${won(t.transport==='car'?c.fuel:c.transit)}</td></tr><tr><td>통행·주차료</td><td>실비</td><td>${won(c.extras)}</td></tr><tr><td>절사 전 합계</td><td>전체 인정금액 합산</td><td>${won(c.grossTotal)}</td></tr><tr><td>원단위 절사</td><td>10원 미만 금액 버림</td><td>-${won(c.truncation)}</td></tr><tr><th colspan="2">최종 지급액</th><th>${won(c.total)}</th></tr></table><p>적용 기준: ${esc(state.settings.ruleVersion)} · 최종금액 원단위 절사</p><h2>증빙자료 목록</h2><table><tr><th>순번</th><th>파일명</th><th>등록일</th></tr>${attachments.length?attachments.map((a,i)=>`<tr><td>${i+1}</td><td>${esc(a.name)}</td><td>${new Date(a.uploadedAt).toLocaleDateString('ko-KR')}</td></tr>`).join(''):'<tr><td colspan="3" class="no-proof">첨부된 증빙자료가 없습니다.</td></tr>'}</table>${images.length?`<section class="evidence-sheet"><div class="evidence-sheet-head"><h2>증빙자료 사진대지</h2><span>총 ${images.length}건</span></div><div class="photo-grid">${images.map(a=>`<figure class="photo-card"><div class="photo-frame"><img src="${attachmentUrl(a)}" alt="${esc(a.name)}"></div><figcaption><b>${esc(a.name)}</b><span>등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')}</span></figcaption></figure>`).join('')}</div></section>`:''}${documents.length?`<section class="document-proof"><h2>원본 파일 증빙</h2><p>아래 PDF 증빙은 사진대지와 함께 원본 파일로 보관됩니다.</p><ol>${documents.map(a=>`<li>${esc(a.name)} <span>(등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')})</span></li>`).join('')}</ol></section>`:''}`;window.print()}
 
 $('#nav').addEventListener('click',(e)=>{const b=e.target.closest('button[data-view]');if(b)setView(b.dataset.view)});
 load().catch(e=>{document.querySelector('#app').innerHTML=`<div class="panel"><div class="empty">${esc(e.message)}<br>서버를 다시 실행해 주세요.</div></div>`});
