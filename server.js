@@ -69,6 +69,13 @@ function loadStore() {
     else store.vehicles.push({ ...hybrid });
     changed = true;
   }
+  if (!store.vehicles.some((vehicle) => vehicle.fuel === 'phev')) {
+    const phev = seed.vehicles.find((vehicle) => vehicle.fuel === 'phev');
+    const hybridIndex = store.vehicles.findIndex((vehicle) => vehicle.fuel === 'hybrid');
+    if (hybridIndex >= 0) store.vehicles.splice(hybridIndex + 1, 0, { ...phev });
+    else store.vehicles.push({ ...phev });
+    changed = true;
+  }
   if (changed) saveStore(store);
   return store;
 }
