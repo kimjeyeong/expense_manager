@@ -53,25 +53,38 @@ async function places(url, origin, env) {
   if (!env.NAVER_SEARCH_CLIENT_ID || !env.NAVER_SEARCH_CLIENT_SECRET) return json({ error: '네이버 장소검색 인증키가 설정되지 않았습니다.' }, 500, origin, env);
   try {
     const searchUrl = new URL('https://naverapihub.apigw.ntruss.com/search/v1/local');
-    // sort=random은 정확도순이라 "서울역"에 지하철 노선별 역이 먼저 걸립니다.
-    // comment는 리뷰·언급 수 순이라 유명한 장소가 앞에 옵니다.
-    searchUrl.search = new URLSearchParams({ query, display: '5', start: '1', sort: 'comment', format: 'json' }).toString();
+    // sort는 random(정확도)만 씁니다. comment(리뷰순)로 바꾸면 "서울역"에
+    // 역 대신 역사 안 상가(마트·햄버거·약국)가 올라옵니다.
+    searchUrl.search = new URLSearchParams({ query, display: '5', start: '1', sort: 'random', format: 'json' }).toString();
     const response = await fetch(searchUrl, { headers: { 'x-ncp-apigw-api-key-id': env.NAVER_SEARCH_CLIENT_ID, 'x-ncp-apigw-api-key': env.NAVER_SEARCH_CLIENT_SECRET, Accept: 'application/json' } });
     if (!response.ok) throw new Error(`네이버 장소검색 오류(${response.status})`);
     const data = await response.json();
     const results = (data.items || []).map((item) => ({ title: String(item.title || '').replace(/<[^>]*>/g, ''), address: item.roadAddress || item.address || '', category: item.category || '' })).filter((item) => item.address);
-    // Array.prototype.sort는 안정 정렬이므로, 점수가 같으면 NAVER의 comment 정렬 순서를 그대로 유지합니다.
-    results.sort((a, b) => titleScore(b.title, query) - titleScore(a.title, query));
+    // Array.prototype.sort는 안정 정렬이라, 점수가 같으면 네이버 정확도 순서를 그대로 유지합니다.
+    results.sort((a, b) => placeScore(b, query) - placeScore(a, query));
     return json({ query, results }, 200, origin, env);
   } catch (error) { return json({ error: error.message || '장소검색에 실패했습니다.' }, 502, origin, env); }
 }
 
-// 검색어와 상호가 정확히 같으면 최우선, 검색어로 시작하면 그다음으로 올립니다.
-function titleScore(title, query) {
-  const a = String(title).replace(/\s+/g, '');
-  const b = String(query).replace(/\s+/g, '');
-  if (a === b) return 2;
-  return a.startsWith(b) ? 1 : 0;
+// 출장지 주소를 찾는 검색이므로, 검색어 자체를 가리키는 대표 장소를 위로 올립니다.
+// "서울역"처럼 노선별 지하철역과 상가가 뒤섞여 나오는 검색어를 위한 보정입니다.
+function placeScore(item, query) {
+  const title = String(item.title).replace(/\s+/g, '');
+  const target = String(query).replace(/\s+/g, '');
+  let score = 0;
+  if (title === target) score += 10;          // 상호가 검색어와 정확히 일치
+  else if (title.startsWith(target)) score += 5; // "서울역 …" 처럼 검색어로 시작
+  score += categoryScore(item.category);
+  return score;
+}
+
+// 같은 이름이 여러 건일 때 대표 시설(기차역·관공서)을 출입구·노선·상가보다 앞세웁니다.
+function categoryScore(category) {
+  const value = String(category);
+  if (/기차|철도|공항/.test(value)) return 3;
+  if (/관공서|공공|정부|대학/.test(value)) return 3;
+  if (/지하철|전철|버스/.test(value)) return 1;
+  return 0;
 }
 
 async function opinet(url, origin, env) {
