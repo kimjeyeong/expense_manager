@@ -174,7 +174,7 @@ function summary(t) { const c=calculate(t), v=getVehicle(t.vehicleId); return `<
 
 function admin() { const s=state.settings; return `<form id="admin-form"><div class="admin-grid"><div class="panel"><div class="panel-head"><h2>여비 기준</h2></div><div class="panel-body"><div class="form-grid">
     ${input('dailyRate','일비(1일)',s.dailyRate,'number','half')}${input('mealRate','식비(1일)',s.mealRate,'number','half')}
-    ${input('capSeoul','숙박 상한·서울(1박)',s.lodgingCaps?.seoul,'number','quarter')}${input('capMetro','숙박 상한·광역시(1박)',s.lodgingCaps?.metro,'number','quarter')}${input('capOther','숙박 상한·기타(1박)',s.lodgingCaps?.other,'number','quarter')}
+    ${input('capSeoul','숙박 상한·서울(1박)',s.lodgingCaps?.seoul,'number','third')}${input('capMetro','숙박 상한·광역시(1박)',s.lodgingCaps?.metro,'number','third')}${input('capOther','숙박 상한·기타(1박)',s.lodgingCaps?.other,'number','third')}
     ${input('ruleVersion','규정 버전',s.ruleVersion,'text','full')}
   </div></div></div><div class="panel"><div class="panel-head"><h2>오피넷·대체 유가</h2></div><div class="panel-body"><div class="form-grid">
     ${input('opinetKey','오피넷 인증키',s.opinetKey,'password','full')}
