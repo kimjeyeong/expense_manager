@@ -25,7 +25,9 @@ export default {
         if (!item?.x || !item?.y) throw new Error(`주소를 찾을 수 없습니다: ${address}`);
         return `${item.x},${item.y}`;
       };
-      const [start, goal] = await Promise.all([geocode(startAddress), geocode(goalAddress)]);
+      // "광양시청"은 지오코딩 결과가 없을 수 있어, 이 서비스의 고정 출발지는 정확한 도로명 주소로 보정합니다.
+      const startQuery = startAddress === '광양시청' ? '전라남도 광양시 시청로 33' : startAddress;
+      const [start, goal] = await Promise.all([geocode(startQuery), geocode(goalAddress)]);
       const directionsUrl = new URL('https://naveropenapi.apigw.ntruss.com/map-direction/v1/driving');
       directionsUrl.search = new URLSearchParams({ start, goal, option: 'trafast', lang: 'ko' }).toString();
       const response = await fetch(directionsUrl, { headers });
