@@ -25,6 +25,12 @@ jobs:
       - uses: actions/configure-pages@v5
         with:
           enablement: true
+      # Pages는 자산을 max-age=600으로 내려보내므로, 배포 직후 10분 동안 브라우저가
+      # 예전 app.js를 계속 쓸 수 있습니다. 커밋 해시를 붙여 새 배포를 항상 내려받게 합니다.
+      - name: Stamp asset URLs with the commit sha
+        run: |
+          sed -i "s|\./app\.js|./app.js?v=${GITHUB_SHA::8}|; s|\./styles\.css|./styles.css?v=${GITHUB_SHA::8}|" public/index.html
+          grep -E 'app\.js|styles\.css' public/index.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: public
