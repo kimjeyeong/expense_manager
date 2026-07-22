@@ -6,7 +6,7 @@
     "fallbackFuel": { "gasoline": 1700, "diesel": 1550, "lpg": 1100, "hybrid": 1700, "electric": 350, "hydrogen": 9900 },
     "ruleVersion": "공무원 여비 규정 기준",
     "opinetKey": "",
-    "routeApiUrl": ""
+    "routeApiUrl": "https://expense-manager-route-proxy.gwangyang-expense.workers.dev/route"
   },
   "vehicles": [
     { "id": "type-gasoline", "name": "휘발유차", "fuel": "gasoline", "efficiency": 12, "unit": "km/L", "active": true },
