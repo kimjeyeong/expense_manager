@@ -33,9 +33,9 @@ const districts = {
 };
 function provinceName(key) { return provinceLabels[key] || key || ''; }
 function districtOptions(province, city) { return (districts[province] || []).map((x) => `<option value="${x}" ${x===city?'selected':''}>${x}</option>`).join(''); }
-const fuelLabels = { gasoline:'휘발유차', diesel:'경유차', lpg:'LPG차', hybrid:'하이브리드차', electric:'전기차', hydrogen:'수소차' };
-const energyUnits = { gasoline:'L', diesel:'L', lpg:'L', hybrid:'L', electric:'kWh', hydrogen:'kg' };
-const efficiencyUnits = { gasoline:'km/L', diesel:'km/L', lpg:'km/L', hybrid:'km/L', electric:'km/kWh', hydrogen:'km/kg' };
+const fuelLabels = { gasoline:'휘발유차', diesel:'경유차', lpg:'LPG차', hybrid:'하이브리드차', phev:'플러그인하이브리드차', electric:'전기차', hydrogen:'수소차' };
+const energyUnits = { gasoline:'L', diesel:'L', lpg:'L', hybrid:'L', phev:'L', electric:'kWh', hydrogen:'kg' };
+const efficiencyUnits = { gasoline:'km/L', diesel:'km/L', lpg:'km/L', hybrid:'km/L', phev:'km/L', electric:'km/kWh', hydrogen:'km/kg' };
 let state = { settings: {}, vehicles: [], trips: [] };
 let currentView = 'dashboard';
 let editingId = null;
@@ -216,7 +216,7 @@ function editor() {
     const v = getVehicle(t.vehicleId); const c = calculate(t);
     body = `<div class="form-grid">
       ${select('transport','주 교통수단',t.transport,[['car','자가용'],['train','철도'],['bus','고속·시외버스'],['public','기타 대중교통'],['official','관용차']])}
-      ${select('vehicleId','차량 종류',t.vehicleId,state.vehicles.filter(x=>x.active!==false).map(x=>[x.id,`${x.name || fuelLabels[x.fuel]} · ${x.efficiency}${x.unit || efficiencyUnits[x.fuel]}`]),'car-only')}
+      ${select('vehicleId','차량 종류',t.vehicleId,state.vehicles.filter(x=>x.active!==false).map(x=>[x.id,`${x.name || fuelLabels[x.fuel]} · ${x.efficiency}${x.unit || efficiencyUnits[x.fuel]}${x.electricEfficiency?` / 전비 ${x.electricEfficiency}${x.electricUnit||'km/kWh'}`:''}`]),'car-only')}
       ${input('origin','출발지',t.origin || '광양시청','text','car-only')}
       ${input('distance','왕복 이동거리(km)',t.distance,'number','car-only')}
       <div class="field car-only"><label>네이버 지도 경로</label><button type="button" class="btn btn-secondary" data-action="distance">출발지·도착지로 왕복 거리 조회</button><div class="helper" id="distance-result">출발지와 상세 출장지를 입력한 뒤 조회하세요.</div></div>

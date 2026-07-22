@@ -125,7 +125,7 @@ async function opinet(url, origin, env) {
 
     if (requestedDate && areaCode) {
       const params = { out: 'json', code: env.OPINET_API_KEY, area: areaCode, date: requestedDate };
-      if (fuel !== 'lpg') params.prodcd = fuel === 'hybrid' ? 'B027' : prodcd;
+      if (fuel !== 'lpg') params.prodcd = ['hybrid','phev'].includes(fuel) ? 'B027' : prodcd;
       const dated = new URL('https://www.opinet.co.kr/api/dateAreaAvgRecentPrice.do');
       dated.search = new URLSearchParams(params).toString();
       const items = oilList(await opinetJson(dated));
@@ -161,7 +161,8 @@ async function opinet(url, origin, env) {
   }
 }
 
-function productCode(fuel) { return { gasoline: 'B027', diesel: 'D047', lpg: 'K015', hybrid: 'B027' }[fuel] || 'B027'; }
+// 하이브리드와 플러그인하이브리드는 휘발유 가격을 씁니다.
+function productCode(fuel) { return { gasoline: 'B027', diesel: 'D047', lpg: 'K015', hybrid: 'B027', phev: 'B027' }[fuel] || 'B027'; }
 function oilList(payload) {
   const result = payload?.RESULT?.OIL ?? payload?.result?.oil ?? [];
   return Array.isArray(result) ? result : [result].filter(Boolean);

@@ -17,17 +17,18 @@ const seed = {
     dailyRate: 25000,
     mealRate: 25000,
     lodgingCaps: { seoul: 100000, metro: 80000, other: 70000 },
-    fallbackFuel: { gasoline: 1700, diesel: 1550, lpg: 1100, hybrid: 1700, electric: 350, hydrogen: 9900 },
+    fallbackFuel: { gasoline: 1700, diesel: 1550, lpg: 1100, hybrid: 1700, phev: 1700, electric: 350, hydrogen: 9900 },
     ruleVersion: '공무원 여비 규정 기준(검토용)',
     approver: '회계담당자'
   },
   vehicles: [
-    { id: 'type-gasoline', name: '휘발유차', fuel: 'gasoline', efficiency: 12.0, unit: 'km/L', active: true },
-    { id: 'type-diesel', name: '경유차', fuel: 'diesel', efficiency: 14.0, unit: 'km/L', active: true },
-    { id: 'type-lpg', name: 'LPG차', fuel: 'lpg', efficiency: 9.0, unit: 'km/L', active: true },
-    { id: 'type-hybrid', name: '하이브리드차', fuel: 'hybrid', efficiency: 18.0, unit: 'km/L', active: true },
-    { id: 'type-electric', name: '전기차', fuel: 'electric', efficiency: 5.0, unit: 'km/kWh', active: true },
-    { id: 'type-hydrogen', name: '수소차', fuel: 'hydrogen', efficiency: 100.0, unit: 'km/kg', active: true }
+    { id: 'type-gasoline', name: '휘발유차', fuel: 'gasoline', efficiency: 11.97, unit: 'km/L', active: true },
+    { id: 'type-diesel', name: '경유차', fuel: 'diesel', efficiency: 12.52, unit: 'km/L', active: true },
+    { id: 'type-lpg', name: 'LPG차', fuel: 'lpg', efficiency: 8.83, unit: 'km/L', active: true },
+    { id: 'type-hybrid', name: '하이브리드차', fuel: 'hybrid', efficiency: 15.37, unit: 'km/L', active: true },
+    { id: 'type-phev', name: '플러그인하이브리드차', fuel: 'phev', efficiency: 10.61, unit: 'km/L', electricEfficiency: 2.84, electricUnit: 'km/kWh', active: true },
+    { id: 'type-electric', name: '전기차', fuel: 'electric', efficiency: 5.22, unit: 'km/kWh', active: true },
+    { id: 'type-hydrogen', name: '수소차', fuel: 'hydrogen', efficiency: 94.9, unit: 'km/kg', active: true }
   ],
   trips: [
     {
@@ -50,7 +51,7 @@ function loadStore() {
   ensureData();
   const store = JSON.parse(fs.readFileSync(STORE_FILE, 'utf8'));
   let changed = false;
-  store.settings.fallbackFuel = { gasoline: 1700, diesel: 1550, lpg: 1100, hybrid: 1700, electric: 350, hydrogen: 9900, ...(store.settings.fallbackFuel || {}) };
+  store.settings.fallbackFuel = { gasoline: 1700, diesel: 1550, lpg: 1100, hybrid: 1700, phev: 1700, electric: 350, hydrogen: 9900, ...(store.settings.fallbackFuel || {}) };
   if (!store.vehicles.some((vehicle) => vehicle.fuel === 'electric')) {
     const key = store.settings.opinetKey;
     store.vehicles = seed.vehicles.map((vehicle) => ({ ...vehicle }));
@@ -115,7 +116,7 @@ function serveStatic(req, res, pathname) {
 }
 
 function productCode(fuel) {
-  return { gasoline: 'B027', diesel: 'D047', lpg: 'K015', hybrid: 'B027' }[fuel] || 'B027';
+  return { gasoline: 'B027', diesel: 'D047', lpg: 'K015', hybrid: 'B027', phev: 'B027' }[fuel] || 'B027';
 }
 
 function dailyAreaProductCode(fuel) {
