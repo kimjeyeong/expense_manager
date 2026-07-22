@@ -25,8 +25,10 @@ jobs:
           secrets: |
             NAVER_MAP_CLIENT_ID
             NAVER_MAP_CLIENT_SECRET
+            OPINET_API_KEY
             ALLOWED_ORIGIN
         env:
           NAVER_MAP_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_MAP_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          OPINET_API_KEY: ${{ secrets.OPINET_API_KEY }}
           ALLOWED_ORIGIN: ${{ secrets.ALLOWED_ORIGIN }}
