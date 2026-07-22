@@ -1,0 +1,13 @@
+{
+  "name": "gwangyang-travel-expense",
+  "version": "0.1.0",
+  "private": true,
+  "description": "관외출장 여비 자동 산정·증빙 관리 시범 프로그램",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

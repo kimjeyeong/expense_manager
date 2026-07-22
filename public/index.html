@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>여비온 — 관외출장 여비 정산</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">여</span><div><strong>여비온</strong><small>관외출장 정산</small></div></div>
+      <nav id="nav">
+        <button data-view="dashboard" class="active"><span>◫</span> 대시보드</button>
+        <button data-view="editor"><span>＋</span> 출장 정산 작성</button>
+        <button data-view="admin"><span>⚙</span> 관리자 설정</button>
+      </nav>
+      <div class="side-note"><b>총괄 정산서</b><p>출장 정보를 입력하고 증빙이 포함된 정산서 PDF를 출력합니다.</p></div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <div><p class="eyebrow">GWANGYANG CITY · TRAVEL EXPENSE</p><h1 id="page-title">출장 정산 현황</h1></div>
+        <div class="user-chip"><span>김</span><div><b>김광양</b><small>데이터정보과</small></div></div>
+      </header>
+      <section id="app" class="content"></section>
+    </main>
+  </div>
+  <div id="toast" class="toast"></div>
+  <script src="./app.js"></script>
+</body>
+</html>
