@@ -205,11 +205,9 @@ function editor() {
   let body = '';
   if (editorStep === 1) body = `<div class="form-grid">
     ${input('employee','출장자',t.employee)}${input('department','소속 부서',t.department)}${input('grade','직급/구분',t.grade)}
-    ${input('startDate','출장 시작일',t.startDate,'date')}${input('endDate','출장 종료일',t.endDate,'date')}${input('purpose','출장 목적',t.purpose)}
-    ${input('startTime','출장 시작시간',t.startTime||'09:00','time')}${input('endTime','출장 종료시간',t.endTime||'18:00','time')}
-    ${select('province','출장 시·도',t.province,Object.keys(provinceCodes).map(x=>[x,provinceName(x)]))}
-    <div class="field"><label for="city">시·군·구</label><select id="city" name="city"><option value="">선택 안 함</option>${districtOptions(t.province,t.city)}</select></div>
-    ${placeSearchField(t.destination)}
+    ${input('startDate','출장 시작일',t.startDate,'date','quarter')}${input('startTime','시작시간',t.startTime||'09:00','time','quarter')}${input('endDate','출장 종료일',t.endDate,'date','quarter')}${input('endTime','종료시간',t.endTime||'18:00','time','quarter')}
+    ${select('province','출장 시·도',t.province,Object.keys(provinceCodes).map(x=>[x,provinceName(x)]))}<div class="field"><label for="city">시·군·구</label><select id="city" name="city"><option value="">선택 안 함</option>${districtOptions(t.province,t.city)}</select></div>${placeSearchField(t.destination)}
+    ${input('purpose','출장 목적',t.purpose,'text','full')}
     <div class="field full"><label>비고</label><textarea name="notes">${esc(t.notes)}</textarea></div>
   </div>`;
   if (editorStep === 2) {
