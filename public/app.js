@@ -209,10 +209,12 @@ function esc(value='') { return String(value).replace(/[&<>'"]/g, (c) => ({'&':'
 // 통합 이전에 저장된 '전남'·'광주'는 편집할 때 통합 시·도로 옮깁니다.
 // 옛 광주 건은 시·군·구('북구' 등)가 그대로 남아 광역시 숙박 상한이 유지됩니다.
 const legacyProvinces = { 전남:'전남광주', 광주:'전남광주' };
-function currentTrip() { const firstVehicle=state.vehicles[0]; const found=state.trips.find((t) => t.id === editingId); if (found) { if (legacyProvinces[found.province]) found.province = legacyProvinces[found.province]; return found; } return { employee:'김광양', department:'데이터정보과', grade:'일반직', startDate:new Date().toISOString().slice(0,10), endDate:new Date().toISOString().slice(0,10), startTime:'09:00', endTime:'18:00', province:'전남광주', city:'', origin:'광양시청', transport:'car', vehicleId:firstVehicle?.id || '', distance:0, oilPrice:state.settings.fallbackFuel?.[firstVehicle?.fuel||'gasoline'] || 0, oilSource:'기준단가', toll:0, parking:0, nights:0, lodgingActual:0, transitActual:0, mealProvided:0, isTraining:false, trainingHost:'', trainingCourse:'', trainingFee:0, trainingPayer:'self', trainingBudget:'', status:'draft', attachments:[], notes:'' }; }
+function currentTrip() { const firstVehicle=state.vehicles[0]; const found=state.trips.find((t) => t.id === editingId); if (found) { if (legacyProvinces[found.province]) found.province = legacyProvinces[found.province]; return found; } // 사람 정보는 예시를 미리 넣어 두면 그대로 저장돼 남의 이름이 정산서에 찍힙니다.
+// 비워 두고 placeholder로 형식만 안내합니다.
+return { employee:'', department:'', grade:'', startDate:new Date().toISOString().slice(0,10), endDate:new Date().toISOString().slice(0,10), startTime:'09:00', endTime:'18:00', province:'전남광주', city:'', origin:'광양시청', transport:'car', vehicleId:firstVehicle?.id || '', distance:0, oilPrice:state.settings.fallbackFuel?.[firstVehicle?.fuel||'gasoline'] || 0, oilSource:'기준단가', toll:0, parking:0, nights:0, lodgingActual:0, transitActual:0, mealProvided:0, isTraining:false, trainingHost:'', trainingCourse:'', trainingFee:0, trainingPayer:'self', trainingBudget:'', status:'draft', attachments:[], notes:'' }; }
 
 function stepper() { return `<div class="stepper">${['출장 정보','교통·여비','증빙자료','정산서 출력'].map((x,i) => `<div class="step ${editorStep === i+1 ? 'active' : editorStep > i+1 ? 'done' : ''}"><span>${editorStep > i+1 ? '✓' : i+1}</span>${x}</div>`).join('')}</div>`; }
-function input(name,label,value,type='text',cls='') { const guard = type==='number' ? ' min="0" step="any"' : ''; return `<div class="field ${cls}"><label for="${name}">${label}</label><input id="${name}" name="${name}" type="${type}"${guard} value="${esc(value ?? '')}"></div>`; }
+function input(name,label,value,type='text',cls='',placeholder='') { const guard = type==='number' ? ' min="0" step="any"' : ''; return `<div class="field ${cls}"><label for="${name}">${label}</label><input id="${name}" name="${name}" type="${type}"${guard} value="${esc(value ?? '')}"${placeholder?` placeholder="${esc(placeholder)}"`:''}></div>`; }
 function select(name,label,value,options,cls='') { return `<div class="field ${cls}"><label for="${name}">${label}</label><select id="${name}" name="${name}">${options.map(([v,l]) => `<option value="${v}" ${String(v)===String(value)?'selected':''}>${l}</option>`).join('')}</select></div>`; }
 function checkbox(name,label,checked,hint='',cls='full') { return `<div class="field check ${cls}"><label for="${name}"><input id="${name}" name="${name}" type="checkbox" ${checked?'checked':''}><span>${label}</span></label>${hint?`<div class="helper">${hint}</div>`:''}</div>`; }
 
@@ -220,10 +222,10 @@ function editor() {
   const t = currentTrip();
   let body = '';
   if (editorStep === 1) body = `<div class="form-grid">
-    ${input('employee','출장자',t.employee)}${input('department','소속 부서',t.department)}${input('grade','직급/구분',t.grade)}
+    ${input('employee','출장자',t.employee,'text','','예: 홍길동')}${input('department','소속 부서',t.department,'text','','예: 데이터정보과')}${input('grade','직급/구분',t.grade,'text','','예: 일반직 7급')}
     ${input('startDate','출장 시작일',t.startDate,'date','quarter')}${input('startTime','시작시간',t.startTime||'09:00','time','quarter')}${input('endDate','출장 종료일',t.endDate,'date','quarter')}${input('endTime','종료시간',t.endTime||'18:00','time','quarter')}
     ${select('province','출장 시·도',t.province,Object.keys(provinceCodes).map(x=>[x,provinceName(x)]))}<div class="field"><label for="city">시·군·구</label><select id="city" name="city"><option value="">선택 안 함</option>${districtOptions(t.province,t.city)}</select></div>${placeSearchField(t)}
-    ${input('purpose','출장 목적',t.purpose,'text','full')}
+    ${input('purpose','출장 목적',t.purpose,'text','full','예: 공공데이터 업무협의 / 데이터 분석 실무과정 교육 참석')}
     ${checkbox('isTraining','교육·연수 출장입니다',t.isTraining,'교육비(수강료)를 결제한 출장이면 체크하세요. 교통·여비 단계에서 결제 내역을 입력받고, 정산서에 여비와 분리한 별도 내역으로 출력합니다.')}
     ${input('trainingHost','교육기관·주최기관',t.trainingHost,'text','training-only half')}${input('trainingCourse','교육 과정명',t.trainingCourse,'text','training-only half')}
     <div class="field full"><label>비고</label><textarea name="notes">${esc(t.notes)}</textarea></div>
@@ -235,8 +237,8 @@ function editor() {
       ${select('vehicleId','차량 종류',t.vehicleId,state.vehicles.filter(x=>x.active!==false).map(x=>[x.id,`${x.name || fuelLabels[x.fuel]} · ${x.efficiency}${x.unit || efficiencyUnits[x.fuel]}${x.electricEfficiency?` / 전비 ${x.electricEfficiency}${x.electricUnit||'km/kWh'}`:''}`]),'car-only')}
       ${input('origin','출발지',t.origin || '광양시청','text','car-only')}
       ${input('distance','왕복 이동거리(km)',t.distance,'number','car-only')}
-      <div class="field car-only"><label>네이버 지도 경로</label><button type="button" class="btn btn-secondary" data-action="distance">출발지·도착지로 왕복 거리 조회</button><div class="helper" id="distance-result">출발지와 상세 출장지를 입력한 뒤 조회하세요.</div></div>
-      <div class="field car-only"><label>에너지 단가(원/${energyUnits[v?.fuel] || 'L'})</label><div class="inline"><input name="oilPrice" type="number" step="0.01" min="0" value="${t.oilPrice || ''}" placeholder="${selfPricedFuels.has(v?.fuel) ? '실제 충전단가를 입력하세요' : '단가 조회를 누르거나 직접 입력'}">${selfPricedFuels.has(v?.fuel) ? '' : '<button type="button" class="btn btn-secondary" data-action="oil">단가 조회</button>'}</div><div class="helper">${selfPricedFuels.has(v?.fuel) ? `${v.name || fuelLabels[v.fuel]}는 오피넷 조회 대상이 아닙니다. 충전 영수증의 단가를 직접 입력하고 증빙을 첨부해 주세요.` : esc(t.oilSource || '기준단가')} · ${v ? `${v.name || fuelLabels[v.fuel]} ${v.efficiency}${v.unit || efficiencyUnits[v.fuel]}` : '차량 종류를 선택하세요'}</div></div>
+      <div class="field car-only"><label>네이버 지도 경로</label><button type="button" class="btn btn-lookup btn-wide" data-action="distance"><span aria-hidden="true">🗺</span> 출발지·도착지로 왕복 거리 조회</button><div class="helper" id="distance-result">출발지와 상세 출장지를 입력한 뒤 조회하세요.</div></div>
+      <div class="field car-only"><label>에너지 단가(원/${energyUnits[v?.fuel] || 'L'})</label><div class="inline"><input name="oilPrice" type="number" step="0.01" min="0" value="${t.oilPrice || ''}" placeholder="${selfPricedFuels.has(v?.fuel) ? '실제 충전단가를 입력하세요' : '단가 조회를 누르거나 직접 입력'}">${selfPricedFuels.has(v?.fuel) ? '' : '<button type="button" class="btn btn-lookup" data-action="oil"><span aria-hidden="true">🔍</span> 단가 조회</button>'}</div><div class="helper">${selfPricedFuels.has(v?.fuel) ? `${v.name || fuelLabels[v.fuel]}는 오피넷 조회 대상이 아닙니다. 충전 영수증의 단가를 직접 입력하고 증빙을 첨부해 주세요.` : esc(t.oilSource || '기준단가')} · ${v ? `${v.name || fuelLabels[v.fuel]} ${v.efficiency}${v.unit || efficiencyUnits[v.fuel]}` : '차량 종류를 선택하세요'}</div></div>
       ${input('toll','통행료 실비',t.toll,'number','car-only')}${input('parking','주차료 실비',t.parking,'number','car-only')}
       ${input('transitActual','철도·버스 실제 결제액',t.transitActual,'number','transit-only')}
       <div class="field full transit-only notice">철도·버스 운임은 실제 결제액을 입력하고 다음 단계에서 승차권을 첨부합니다. 자동 운임표는 참고값으로만 운영하는 것이 안전합니다.</div>
@@ -305,6 +307,9 @@ async function saveTrip(status) { const t=serializeTrip(); if(status)t.status=st
 // 조용히 틀린 금액이 나가지 않도록, 계산에 영향을 주는 입력 문제를 눈에 보이게 알립니다.
 function warnings(t,v){
   const list=[];
+  // 이 네 가지는 여비 지급명세서에 그대로 인쇄됩니다. 비어 있으면 빈칸인 채로 출력됩니다.
+  const blanks=[['출장자',t.employee],['소속 부서',t.department],['직급/구분',t.grade],['출장 목적',t.purpose]].filter(([,value])=>!String(value||'').trim()).map(([label])=>label);
+  if(blanks.length) list.push(`${blanks.join(' · ')}이(가) 비어 있습니다. 1단계에서 입력하지 않으면 정산서에 빈칸으로 인쇄됩니다.`);
   if(t.startDate&&t.endDate&&t.endDate<t.startDate) list.push('출장 종료일이 시작일보다 앞섭니다. 일수가 1일로 계산됩니다.');
   if(t.transport==='car'&&!v) list.push('차량 종류를 선택해야 교통비가 계산됩니다.');
   if(t.transport==='car'&&v&&!Number(t.oilPrice)) list.push(`${selfPricedFuels.has(v.fuel)?'실제 충전단가':'에너지 단가'}가 비어 있어 교통비가 0원으로 계산됩니다.`);
