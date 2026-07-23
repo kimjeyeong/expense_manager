@@ -11,6 +11,7 @@ export default {
     if (url.pathname === '/opinet') return opinet(url, origin, env);
     if (url.pathname === '/places') return places(url, origin, env);
     if (url.pathname === '/region') return region(url, origin, env);
+    if (url.pathname === '/staticmap') return staticMap(url, origin, env);
     if (url.pathname !== '/route') return json({ error: `없는 경로입니다: ${url.pathname}` }, 404, origin, env);
     const startAddress = url.searchParams.get('origin')?.trim();
     const goalAddress = url.searchParams.get('destination')?.trim();
@@ -65,6 +66,50 @@ async function region(url, origin, env) {
     if (!name) throw new Error(`출발지의 시·도를 확인할 수 없습니다: ${query}`);
     return json({ query, sido: name, address: item.roadAddress || item.jibunAddress || '' }, 200, origin, env);
   } catch (error) { return json({ error: error.message || '출발지 지역 조회에 실패했습니다.' }, 502, origin, env); }
+}
+
+// 출발지·도착지에 마커를 찍은 지도 이미지를 정산 증빙용으로 돌려줍니다.
+// Static Map은 Geocoding·Directions 5와 같은 게이트웨이·같은 인증키를 씁니다.
+// 콘솔에서 Static Map을 구독하지 않았으면 여기서 실패하고, 앱은 지도 없이 계속 동작합니다.
+async function staticMap(url, origin, env) {
+  const from = url.searchParams.get('origin')?.trim();
+  const to = url.searchParams.get('destination')?.trim();
+  if (!from || !to) return json({ error: '출발지와 도착지를 모두 입력해 주세요.' }, 400, origin, env);
+  if (!env.NAVER_MAP_CLIENT_ID || !env.NAVER_MAP_CLIENT_SECRET) return json({ error: '네이버 Maps 인증키가 설정되지 않았습니다.' }, 500, origin, env);
+  try {
+    const [start, goal] = await Promise.all([geocode(from, env), geocode(to, env)]);
+    const ax = Number(start.x), ay = Number(start.y), bx = Number(goal.x), by = Number(goal.y);
+    const map = new URL('https://maps.apigw.ntruss.com/map-static/v2/raster');
+    map.searchParams.set('center', `${(ax + bx) / 2},${(ay + by) / 2}`);
+    map.searchParams.set('level', String(zoomFor(Math.max(Math.abs(ax - bx), Math.abs(ay - by)))));
+    map.searchParams.set('w', '700');
+    map.searchParams.set('h', '420');
+    map.searchParams.set('format', 'jpg');
+    map.searchParams.set('lang', 'ko');
+    map.searchParams.append('markers', `type:d|size:mid|color:blue|pos:${ax} ${ay}`);
+    map.searchParams.append('markers', `type:d|size:mid|color:red|pos:${bx} ${by}`);
+    const response = await fetch(map, { headers: mapHeaders(env) });
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`지도 이미지 조회 오류(${response.status})${detail ? `: ${detail.slice(0, 160)}` : ''}`);
+    }
+    return json({ image: `data:image/jpeg;base64,${base64(await response.arrayBuffer())}` }, 200, origin, env);
+  } catch (error) { return json({ error: error.message || '지도 이미지 조회에 실패했습니다.' }, 502, origin, env); }
+}
+
+// 두 지점의 경도·위도 차이가 클수록 더 넓게 봅니다.
+function zoomFor(span) {
+  const steps = [[3, 6], [1.5, 7], [0.7, 8], [0.35, 9], [0.15, 10], [0.07, 11], [0.03, 12]];
+  for (const [limit, level] of steps) if (span > limit) return level;
+  return 13;
+}
+
+// 큰 배열을 한 번에 펼치면 스택이 넘치므로 나눠서 인코딩합니다.
+function base64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
 }
 
 async function places(url, origin, env) {

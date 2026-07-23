@@ -49,3 +49,8 @@ button,input,select,textarea{font:inherit} button{cursor:pointer}.app-shell{disp
   .print-report .lookup-proof th,.print-report .lookup-proof td{border:1px solid #999;padding:2mm 3mm}
   .print-report .proof-note{margin-top:6mm;font-size:9px;color:#555}
 }
+@media print{
+  .print-report .proof-map{margin:6mm 0 0;break-inside:avoid}
+  .print-report .proof-map img{display:block;width:120mm;border:1px solid #999}
+  .print-report .proof-map figcaption{font-size:9px;color:#555;margin-top:1.5mm}
+}
