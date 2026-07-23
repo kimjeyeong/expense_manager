@@ -39,3 +39,13 @@ button,input,select,textarea{font:inherit} button{cursor:pointer}.app-shell{disp
   .print-report .photo-card figcaption b{display:inline;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .print-report .photo-card figcaption span{display:inline;white-space:nowrap;color:#555}
 }
+
+/* 거리·단가 조회 근거: 사진대지 앞에 한 장으로 붙습니다. */
+@media print{
+  .print-report .lookup-proof{page-break-before:always;break-before:page}
+  .print-report .lookup-proof h3{font-size:12px;margin:6mm 0 2mm}
+  .print-report .lookup-proof table{width:120mm;font-size:10px}
+  .print-report .lookup-proof th{width:32mm;background:#f0f0f0;text-align:left}
+  .print-report .lookup-proof th,.print-report .lookup-proof td{border:1px solid #999;padding:2mm 3mm}
+  .print-report .proof-note{margin-top:6mm;font-size:9px;color:#555}
+}
