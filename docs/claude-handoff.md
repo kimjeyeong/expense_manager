@@ -111,7 +111,28 @@ https://expense-manager-route-proxy.gwangyang-expense.workers.dev/route?origin=%
 | --- | --- |
 | `/route?origin=...&destination=...` | Naver Geocoding + Directions 5로 왕복 거리 조회 |
 | `/places?query=서울역` | NAVER API HUB 지역/장소 검색, 최대 5개 결과 |
-| `/opinet?area=20&fuel=gasoline&date=YYYY-MM-DD` | 지역 평균 유가 조회 |
+| `/region?query=광양시청` | 출발지의 시·도와 시·군·구 이름 반환 (유가 조회 지역 결정용) |
+| `/staticmap?origin=...&destination=...` | 출발지·도착지 마커 지도 이미지 (증빙용) |
+| `/opinet?area=20&sigungu=광양시&fuel=gasoline&date=YYYY-MM-DD` | 지역 평균 유가 조회 |
+
+## 유가 조회 단위 (2026-07-23)
+
+오피넷 집계 최소 단위는 **시·군·구**입니다. 동·읍·면 단위 API는 없습니다(`areaCode.do?area=2010`이 빈 결과, 6자리 코드도 빈 결과). 좌표 반경 내 개별 주유소를 받아 직접 평균 내는 우회로가 있으나, 오피넷 공표값이 아닌 자체 산출값이 되므로 정산 근거로는 쓰지 않습니다.
+
+`/opinet` 폴백 순서:
+
+1. 해당일 시·군·구 평균 (`dateAreaAvgRecentPrice.do`, area=4자리)
+2. 해당일 시·도 평균 (`dateAreaAvgRecentPrice.do`, area=2자리)
+3. 현재 시·군·구 평균 (`avgSigunPrice.do`)
+4. 현재 시·도 평균 (`avgSidoPrice.do`)
+5. 현재 전국 평균 (`avgAllPrice.do`)
+
+주의할 점:
+
+- **시·군·구 코드를 표로 굳히지 않습니다.** 2026-07-01 시·도 통합으로 코드가 재편됐고, 낡은 표는 조용히 틀린 단가를 만듭니다. `areaCode.do`로 조회 시점에 확인합니다.
+- **오피넷에 구 단위가 없는 시가 있습니다.** 지오코딩이 `성남시 분당구`를 주지만 오피넷은 `성남시`(0202)까지입니다. 이름 매칭은 정확히 일치 → 최장 접두 순이며, `server.js`의 `matchArea`에 회귀 테스트가 있습니다.
+- **당일 확정 유가는 없습니다.** 오피넷 확정 평균은 며칠 뒤 공표라 당일 조회는 3번으로 폴백합니다. 출장 며칠 뒤에 정산하면 1번이 잡힙니다.
+- 정산서 근거란에 `기준 지점`(출발지)과 `집계 지역`(실제 적용 단위)을 나눠 인쇄합니다. 폴백이 일어나면 둘이 달라지므로 검토자가 확인할 수 있어야 합니다.
 
 ## 최근 병합 PR
 
