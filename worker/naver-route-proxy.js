@@ -92,8 +92,8 @@ async function staticMap(url, origin, env) {
     map.searchParams.set('h', String(height));
     map.searchParams.set('format', 'jpg');
     map.searchParams.set('lang', 'ko');
-    map.searchParams.append('markers', `type:d|size:mid|color:blue|pos:${ax} ${ay}`);
-    map.searchParams.append('markers', `type:d|size:mid|color:red|pos:${bx} ${by}`);
+    map.searchParams.append('markers', `type:d|size:mid|color:blue|pos:${start.x} ${start.y}`);
+    map.searchParams.append('markers', `type:d|size:mid|color:red|pos:${goal.x} ${goal.y}`);
     const response = await fetch(map, { headers: mapHeaders(env) });
     if (!response.ok) {
       const detail = await response.text();
