@@ -49,6 +49,21 @@ button,input,select,textarea{font:inherit} button{cursor:pointer}.app-shell{disp
   .print-report .lookup-proof th,.print-report .lookup-proof td{border:1px solid #999;padding:2mm 3mm}
   .print-report .proof-note{margin-top:6mm;font-size:9px;color:#555}
 }
+/* 교육 출장: 체크박스 한 줄과 여비와 분리해 보여 주는 교육비 요약 */
+.field.check label{display:flex;align-items:center;gap:8px;margin-bottom:0;font-size:13px}
+.field.check input{width:16px;height:16px;flex:none;padding:0}
+.training-note{margin-top:14px;background:#fdf6ec;border-color:#f0dfc2;color:#7a5a20}
+.training-note b{color:#6a4a12}
+.training-note div{margin-top:5px;line-height:1.55}
+
+/* 교육비 집행 내역: 여비 지급명세서와 섞이지 않도록 별지 한 장으로 나옵니다. */
+@media print{
+  .print-report .training-sheet{page-break-before:always;break-before:page}
+  .print-report .training-sheet table{width:130mm;font-size:10px}
+  .print-report .training-sheet th{width:40mm;background:#f0f0f0;text-align:left}
+  .print-report .training-sheet th,.print-report .training-sheet td{border:1px solid #999;padding:2mm 3mm}
+  .print-report .training-note-print{margin-top:6mm;font-size:10px;font-weight:700}
+}
 @media print{
   .print-report .proof-map{margin:6mm 0 0;break-inside:avoid}
   .print-report .proof-map img{display:block;width:120mm;border:1px solid #999}

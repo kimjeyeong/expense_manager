@@ -37,6 +37,9 @@ const selfPricedFuels = new Set(['electric','hydrogen']);
 const fuelLabels = { gasoline:'휘발유차', diesel:'경유차', lpg:'LPG차', hybrid:'하이브리드차', phev:'플러그인하이브리드차', electric:'전기차', hydrogen:'수소차' };
 const energyUnits = { gasoline:'L', diesel:'L', lpg:'L', hybrid:'L', phev:'L', electric:'kWh', hydrogen:'kg' };
 const efficiencyUnits = { gasoline:'km/L', diesel:'km/L', lpg:'km/L', hybrid:'km/L', phev:'km/L', electric:'km/kWh', hydrogen:'km/kg' };
+// 교육비(수강료)는 여비가 아니라 교육훈련비로 따로 집행합니다. 누가 결제했는지에 따라
+// 환급을 청구할 건인지, 사실만 적어 둘 건인지가 갈리므로 결제주체를 함께 받습니다.
+const trainingPayers = { self:'본인 결제(환급 청구)', corporate:'법인(관서)카드 결제', prepaid:'기관 선납·면제(본인 부담 없음)' };
 let state = { settings: {}, vehicles: [], trips: [] };
 let currentView = 'dashboard';
 let editingId = null;
@@ -176,7 +179,11 @@ function calculate(t) {
   const grossTotal = Math.floor(daily + meals + lodging + fuel + transit + extras);
   const total = truncateOnes(grossTotal);
   const truncation = grossTotal - total;
-  return { days, daily, dailyRateFactor, meals, providedMeals, cap, lodging, fuel, transit, extras, grossTotal, truncation, total };
+  // 교육비는 여비 항목이 아니므로 grossTotal·total 어디에도 더하지 않습니다.
+  // 여비 지급명세서의 '계'가 교육비만큼 부풀면 그대로 잘못된 지급액이 됩니다.
+  const trainingFee = t.isTraining ? positive(t.trainingFee) : 0;
+  const trainingClaim = t.trainingPayer === 'self' ? trainingFee : 0;
+  return { days, daily, dailyRateFactor, meals, providedMeals, cap, lodging, fuel, transit, extras, grossTotal, truncation, total, trainingFee, trainingClaim };
 }
 
 function dashboard() {
@@ -199,11 +206,12 @@ function esc(value='') { return String(value).replace(/[&<>'"]/g, (c) => ({'&':'
 // 통합 이전에 저장된 '전남'·'광주'는 편집할 때 통합 시·도로 옮깁니다.
 // 옛 광주 건은 시·군·구('북구' 등)가 그대로 남아 광역시 숙박 상한이 유지됩니다.
 const legacyProvinces = { 전남:'전남광주', 광주:'전남광주' };
-function currentTrip() { const firstVehicle=state.vehicles[0]; const found=state.trips.find((t) => t.id === editingId); if (found) { if (legacyProvinces[found.province]) found.province = legacyProvinces[found.province]; return found; } return { employee:'김광양', department:'데이터정보과', grade:'일반직', startDate:new Date().toISOString().slice(0,10), endDate:new Date().toISOString().slice(0,10), startTime:'09:00', endTime:'18:00', province:'전남광주', city:'', origin:'광양시청', transport:'car', vehicleId:firstVehicle?.id || '', distance:0, oilPrice:state.settings.fallbackFuel?.[firstVehicle?.fuel||'gasoline'] || 0, oilSource:'기준단가', toll:0, parking:0, nights:0, lodgingActual:0, transitActual:0, mealProvided:0, status:'draft', attachments:[], notes:'' }; }
+function currentTrip() { const firstVehicle=state.vehicles[0]; const found=state.trips.find((t) => t.id === editingId); if (found) { if (legacyProvinces[found.province]) found.province = legacyProvinces[found.province]; return found; } return { employee:'김광양', department:'데이터정보과', grade:'일반직', startDate:new Date().toISOString().slice(0,10), endDate:new Date().toISOString().slice(0,10), startTime:'09:00', endTime:'18:00', province:'전남광주', city:'', origin:'광양시청', transport:'car', vehicleId:firstVehicle?.id || '', distance:0, oilPrice:state.settings.fallbackFuel?.[firstVehicle?.fuel||'gasoline'] || 0, oilSource:'기준단가', toll:0, parking:0, nights:0, lodgingActual:0, transitActual:0, mealProvided:0, isTraining:false, trainingHost:'', trainingCourse:'', trainingFee:0, trainingPayer:'self', trainingBudget:'', status:'draft', attachments:[], notes:'' }; }
 
 function stepper() { return `<div class="stepper">${['출장 정보','교통·여비','증빙자료','정산서 출력'].map((x,i) => `<div class="step ${editorStep === i+1 ? 'active' : editorStep > i+1 ? 'done' : ''}"><span>${editorStep > i+1 ? '✓' : i+1}</span>${x}</div>`).join('')}</div>`; }
 function input(name,label,value,type='text',cls='') { const guard = type==='number' ? ' min="0" step="any"' : ''; return `<div class="field ${cls}"><label for="${name}">${label}</label><input id="${name}" name="${name}" type="${type}"${guard} value="${esc(value ?? '')}"></div>`; }
 function select(name,label,value,options,cls='') { return `<div class="field ${cls}"><label for="${name}">${label}</label><select id="${name}" name="${name}">${options.map(([v,l]) => `<option value="${v}" ${String(v)===String(value)?'selected':''}>${l}</option>`).join('')}</select></div>`; }
+function checkbox(name,label,checked,hint='',cls='full') { return `<div class="field check ${cls}"><label for="${name}"><input id="${name}" name="${name}" type="checkbox" ${checked?'checked':''}><span>${label}</span></label>${hint?`<div class="helper">${hint}</div>`:''}</div>`; }
 
 function editor() {
   const t = currentTrip();
@@ -213,6 +221,8 @@ function editor() {
     ${input('startDate','출장 시작일',t.startDate,'date','quarter')}${input('startTime','시작시간',t.startTime||'09:00','time','quarter')}${input('endDate','출장 종료일',t.endDate,'date','quarter')}${input('endTime','종료시간',t.endTime||'18:00','time','quarter')}
     ${select('province','출장 시·도',t.province,Object.keys(provinceCodes).map(x=>[x,provinceName(x)]))}<div class="field"><label for="city">시·군·구</label><select id="city" name="city"><option value="">선택 안 함</option>${districtOptions(t.province,t.city)}</select></div>${placeSearchField(t)}
     ${input('purpose','출장 목적',t.purpose,'text','full')}
+    ${checkbox('isTraining','교육·연수 출장입니다',t.isTraining,'교육비(수강료)를 결제한 출장이면 체크하세요. 교통·여비 단계에서 결제 내역을 입력받고, 정산서에 여비와 분리한 별도 내역으로 출력합니다.')}
+    ${input('trainingHost','교육기관·주최기관',t.trainingHost,'text','training-only half')}${input('trainingCourse','교육 과정명',t.trainingCourse,'text','training-only half')}
     <div class="field full"><label>비고</label><textarea name="notes">${esc(t.notes)}</textarea></div>
   </div>`;
   if (editorStep === 2) {
@@ -230,11 +240,14 @@ function editor() {
       <h3 class="section-title">숙박·식비</h3>
       ${input('nights','숙박일수',t.nights,'number')}${input('lodgingActual','숙박 실제 결제액',t.lodgingActual,'number')}${input('mealProvided','무료 제공 식사 횟수(조·중·석)',t.mealProvided,'number')}
       <div class="field full notice ${Number(t.lodgingActual||0)>c.cap?'warn':''}">선택 지역의 숙박비 상한은 ${won(lodgingCap(t.province))}/박입니다. 현재 인정 한도 ${won(c.cap)}, 지급 산정액 ${won(c.lodging)}${Number(t.lodgingActual||0)>c.cap?' — 초과액은 자동 제외됩니다.':''}</div>
+      ${t.isTraining?`<h3 class="section-title">교육비(여비 외 별도 집행)</h3>
+      ${input('trainingFee','교육비 결제액',t.trainingFee,'number','third')}${select('trainingPayer','결제주체',t.trainingPayer,Object.entries(trainingPayers),'third')}${input('trainingBudget','예산과목(선택)',t.trainingBudget,'text','third')}
+      <div class="field full notice">교육비는 여비가 아니므로 <b>위 여비 산정액에 합산하지 않습니다.</b> 정산서에는 여비 지급명세서와 분리된 별도 내역으로 출력됩니다. 법인카드·기관 선납이면 결제액을 그대로 적고 결제주체만 바꿔 주세요 — 금액은 기록으로만 남고 청구액으로 잡히지 않습니다.</div>`:''}
       ${warnings(t,v)}
       <div class="field full notice">관용차 이용 시 해당 출장일의 일비는 50%만 지급합니다. 식비는 주최기관·교육기관·행사비·법인카드 등으로 본인 부담 없이 제공된 조식·중식·석식만 입력하며, 1식마다 1일 식비의 3분의 1을 감액합니다. 다과·음료는 식사에 포함하지 않습니다.</div>
     </div>`;
   }
-  if (editorStep === 3) body = `<div class="upload-box"><p><b>영수증·승차권·통행료 등 증빙자료</b></p><p class="helper">이미지 증빙은 PDF 출력 시 사진대지로 자동 배치됩니다. PDF 증빙은 원본 파일로 별도 보관됩니다.</p>${storageHelper()}<label class="btn btn-primary" for="proof-file">파일 선택</label><input id="proof-file" type="file" accept="image/*,.pdf" multiple></div>${attachmentList(t)}`;
+  if (editorStep === 3) body = `${t.isTraining?'<div class="notice" style="margin-bottom:14px">교육 출장은 <b>교육비 영수증(카드전표)과 수강신청·교육 확인서</b>를 함께 첨부해 주세요. 교육비는 여비와 별도로 집행되므로 증빙이 없으면 집행 근거가 남지 않습니다.</div>':''}<div class="upload-box"><p><b>영수증·승차권·통행료 등 증빙자료</b></p><p class="helper">이미지 증빙은 PDF 출력 시 사진대지로 자동 배치됩니다. PDF 증빙은 원본 파일로 별도 보관됩니다.</p>${storageHelper()}<label class="btn btn-primary" for="proof-file">파일 선택</label><input id="proof-file" type="file" accept="image/*,.pdf" multiple></div>${attachmentList(t)}`;
   if (editorStep === 4) body = summary(t);
   return `${stepper()}<form id="trip-form"><div class="panel"><div class="panel-head"><h2>${editingId?'출장 정산 수정':'새 출장 정산'}</h2><span class="status status-${t.status}">${statusLabel[t.status] || '작성중'}</span></div><div class="panel-body">${body}</div></div><div class="actions"><button type="button" class="btn btn-secondary" data-action="cancel">목록으로</button><div class="actions-right">${editorStep>1?'<button type="button" class="btn btn-secondary" data-action="prev">이전</button>':''}<button type="button" class="btn btn-secondary" data-action="save">임시저장</button>${editorStep<4?'<button type="button" class="btn btn-primary" data-action="next">다음</button>':'<button type="button" class="btn btn-primary" data-action="complete">총괄 PDF 출력</button>'}</div></div></form>`;
 }
@@ -244,6 +257,15 @@ function attachmentUrl(a) { return a.data || `/files/${encodeURIComponent(a.stor
 function placeSearchField(t) { return `<div class="field"><label for="destination">상세 출장지</label><div class="inline"><input id="destination" name="destination" value="${esc(t.destination ?? '')}" placeholder="예: 전남테크노파크 본원"><button type="button" class="btn btn-secondary" data-action="place-search">장소 검색</button></div><input type="hidden" name="destinationAddress" value="${esc(t.destinationAddress ?? '')}"><div id="place-results" class="place-results helper">${t.destinationAddress ? `거리 조회 주소: ${esc(t.destinationAddress)}` : '장소명을 입력한 뒤 검색해 선택하세요.'}</div></div>`; }
 function attachmentList(t) { const list=t.attachments||[]; return `<div class="attachment-list">${list.length?list.map((a,i)=>`<div class="attachment"><div><a href="${attachmentUrl(a)}" target="_blank">${i+1}. ${esc(a.name)}</a><div class="helper">${new Date(a.uploadedAt).toLocaleString('ko-KR')}</div></div><button type="button" class="btn btn-danger btn-small" data-delete-attachment="${a.id}">삭제</button></div>`).join(''):'<div class="empty">첨부된 증빙이 없습니다.</div>'}</div>`; }
 
+// 여비 합계와 확실히 떨어져 보이도록 계산 목록 바깥에 따로 둡니다.
+// 한 줄로 섞어 두면 검토자가 두 금액을 더해 읽습니다.
+function trainingSummary(t,c) {
+  if(!t.isTraining) return '';
+  const claimed=c.trainingClaim>0;
+  return `<div class="notice training-note"><b>교육비(여비 외 별도 집행) ${won(c.trainingFee)}</b>
+    <div>${esc(t.trainingHost||'교육기관 미입력')}${t.trainingCourse?` · ${esc(t.trainingCourse)}`:''} · ${esc(trainingPayers[t.trainingPayer]||t.trainingPayer||'-')}${t.trainingBudget?` · 예산과목 ${esc(t.trainingBudget)}`:''}</div>
+    <div>${claimed?`이 중 <b>${won(c.trainingClaim)}</b>이 본인 결제분으로 환급 청구 대상입니다.`:'본인 부담이 없어 청구 대상이 아니며 기록으로만 남습니다.'} 위 여비 산정액 ${won(c.total)}에는 포함되지 않습니다.</div></div>`;
+}
 function summary(t) { const c=calculate(t), v=getVehicle(t.vehicleId); return `<div class="summary-grid"><div><div class="calc-list">
     <div class="calc-row"><div><b>일비</b><small>${c.days}일 × ${won(state.settings.dailyRate)}${c.dailyRateFactor===0.5?' × 50%(관용차)':''}</small></div><span>${c.dailyRateFactor===0.5?'관용차 감액':'규정 정액'}</span><strong>${won(c.daily)}</strong></div>
     <div class="calc-row"><div><b>식비</b><small>${c.days}일, 무료 제공식 ${c.providedMeals}회 × 1/3 차감</small></div><span>규정 정액</span><strong>${won(c.meals)}</strong></div>
@@ -252,7 +274,7 @@ function summary(t) { const c=calculate(t), v=getVehicle(t.vehicleId); return `<
     ${c.extras?`<div class="calc-row"><div><b>통행·주차료</b><small>실비 입력</small></div><span>증빙 첨부</span><strong>${won(c.extras)}</strong></div>`:''}
     <div class="calc-row"><div><b>절사 전 합계</b><small>전체 인정금액 합산</small></div><span>소계</span><strong>${won(c.grossTotal)}</strong></div>
     <div class="calc-row"><div><b>원단위 절사</b><small>10원 미만 금액 버림</small></div><span>최종금액 적용</span><strong>-${won(c.truncation)}</strong></div>
-  </div><div class="notice">적용 규정: ${esc(state.settings.ruleVersion)} · 출력 시 적용 단가와 계산 근거가 정산 건에 저장됩니다.</div></div><div><div class="total-box"><span>최종 지급 산정액</span><b>${won(c.total)}</b><small>증빙 ${t.attachments?.length||0}건 · 원단위 절사 적용</small></div><div class="panel" style="margin-top:14px"><div class="panel-body"><b>출장 요약</b><p>${esc(t.employee)} · ${esc(t.department)}</p><p>${t.startDate} ~ ${t.endDate}</p><p>${esc(provinceName(t.province))} ${esc(t.city||'')} · ${esc(t.purpose)}</p></div></div></div></div>`; }
+  </div>${trainingSummary(t,c)}<div class="notice">적용 규정: ${esc(state.settings.ruleVersion)} · 출력 시 적용 단가와 계산 근거가 정산 건에 저장됩니다.</div></div><div><div class="total-box"><span>최종 지급 산정액</span><b>${won(c.total)}</b><small>증빙 ${t.attachments?.length||0}건 · 원단위 절사 적용</small></div><div class="panel" style="margin-top:14px"><div class="panel-body"><b>출장 요약</b><p>${esc(t.employee)} · ${esc(t.department)}</p><p>${t.startDate} ~ ${t.endDate}</p><p>${esc(provinceName(t.province))} ${esc(t.city||'')} · ${esc(t.purpose)}</p></div></div></div></div>`; }
 
 function render() {
   const titles={dashboard:'출장 정산 현황',editor:'출장 정산 작성',admin:'운영 기준 관리(숨김)'};
@@ -260,6 +282,7 @@ function render() {
   $('#page-title').textContent=titles[currentView];
   $('#app').innerHTML=({dashboard,editor,admin}[currentView]||dashboard)();
   bind();
+  if(currentView==='editor'&&editorStep===1) toggleTraining();
   if(currentView==='editor'&&editorStep===2) toggleTransport();
 }
 
@@ -267,7 +290,11 @@ function serializeTrip() {
   const t={...currentTrip()}; const form=$('#trip-form'); if(!form)return t;
   new FormData(form).forEach((v,k)=>{t[k]=v});
   // 음수는 어떤 항목에서도 뜻이 없습니다. 그대로 두면 교통비가 마이너스가 되어 지급액이 깎입니다.
-  ['distance','oilPrice','toll','parking','nights','lodgingActual','transitActual','mealProvided'].forEach(k=>t[k]=Math.max(0,Number(t[k])||0));
+  ['distance','oilPrice','toll','parking','nights','lodgingActual','transitActual','mealProvided','trainingFee'].forEach(k=>t[k]=Math.max(0,Number(t[k])||0));
+  // 체크 해제된 체크박스는 FormData에 아예 담기지 않습니다. 체크박스가 화면에 있는
+  // 단계에서만 값을 덮어써야, 다른 단계에서 저장할 때 설정이 풀리지 않습니다.
+  const trainingToggle=$('[name="isTraining"]',form);
+  if(trainingToggle)t.isTraining=trainingToggle.checked;
   if(manualOilPrice)t.oilSource='직접 입력';
   return t;
 }
@@ -280,8 +307,16 @@ function warnings(t,v){
   if(t.transport==='car'&&v&&!Number(t.oilPrice)) list.push(`${selfPricedFuels.has(v.fuel)?'실제 충전단가':'에너지 단가'}가 비어 있어 교통비가 0원으로 계산됩니다.`);
   if(['train','bus','public'].includes(t.transport)&&!Number(t.transitActual)) list.push('실제 결제액이 비어 있어 운임이 0원으로 계산됩니다.');
   if(Number(t.nights)>0&&!Number(t.lodgingActual)) list.push('숙박일수가 있는데 숙박 실제 결제액이 비어 있습니다.');
+  if(t.isTraining){
+    if(!t.trainingHost?.trim()) list.push('교육기관·주최기관이 비어 있습니다. 1단계에서 입력해 주세요.');
+    if(t.trainingPayer==='self'&&!Number(t.trainingFee)) list.push('본인 결제로 되어 있는데 교육비 결제액이 비어 있습니다.');
+    if(Number(t.trainingFee)>0&&!(t.attachments||[]).length) list.push('교육비 결제 증빙(영수증·수강신청 확인서)이 아직 첨부되지 않았습니다.');
+    // 교육기관 제공 중식을 빠뜨려 식비가 과다 지급되는 일이 잦습니다.
+    if(!Number(t.mealProvided)) list.push('교육기관에서 식사를 제공받았다면 무료 제공 식사 횟수에 반영해야 합니다. 제공받지 않았다면 0으로 두세요.');
+  }
   return list.length?`<div class="field full notice warn">${list.map(esc).join('<br>')}</div>`:'';
 }
+function toggleTraining(){const on=$('[name="isTraining"]')?.checked; $$('.training-only').forEach(x=>x.style.display=on?'':'none');}
 function toggleTransport(){const value=$('[name="transport"]')?.value; $$('.car-only').forEach(x=>x.style.display=value==='car'?'':'none'); $$('.transit-only').forEach(x=>x.style.display=['train','bus','public'].includes(value)?'':'none');}
 
 function bind() {
@@ -296,6 +331,7 @@ function bind() {
   $('[data-action="complete"]')?.addEventListener('click',async()=>{const t=await saveTrip('completed');t.history=t.history||[];t.history.push({at:new Date().toISOString(),action:'총괄 정산서 출력',actor:t.employee});await request('/api/trips',{method:'POST',body:JSON.stringify(t)});await load();const completed=state.trips.find(x=>x.id===t.id);printTrip(completed,getVehicle(completed.vehicleId),calculate(completed))});
   // 시·도를 바꾸면 시·군·구 목록도 그 시·도 것으로 갈아 끼웁니다.
   $('[name="province"]')?.addEventListener('change',(e)=>{const city=$('[name="city"]');if(!city)return;city.innerHTML=`<option value="">선택 안 함</option>${districtOptions(e.target.value,'')}`;currentTrip().city=''});
+  $('[name="isTraining"]')?.addEventListener('change',toggleTraining);
   $('[name="transport"]')?.addEventListener('change',toggleTransport);
   $('[name="vehicleId"]')?.addEventListener('change',(e)=>{const vehicle=getVehicle(e.target.value);const trip=currentTrip();const priceInput=$('[name="oilPrice"]');
     if(selfPricedFuels.has(vehicle?.fuel)){if(priceInput)priceInput.value='';trip.oilPrice=0;trip.oilSource='직접 입력';manualOilPrice=true;saveLocal();render();$('[name="oilPrice"]')?.focus();toast(`${vehicle?.name || fuelLabels[vehicle?.fuel]}는 실제 충전단가를 직접 입력해 주세요.`);return}
@@ -394,6 +430,18 @@ function expenseSheet(t,v,c){
       <td class="money">${won(c.total)}</td><td></td></tr></tbody></table>
     <div class="sheet-foot"><span>광양시 ${esc(t.department)}</span><span>1/1</span><span>${esc(t.employee)} ${printStamp()}</span></div></section>`;
 }
+// 교육비는 여비 지급명세서의 어느 칸에도 들어가지 않습니다(‘기타’ 칸은 통행·주차료가 씁니다).
+// 같은 정산 건의 근거로 남기되, 금액을 합산해 읽지 않도록 명세서 아래에 별지로 붙입니다.
+function trainingSheet(t,c) {
+  if(!t.isTraining) return '';
+  const rows=[['교육기관·주최기관',t.trainingHost||'-'],['교육 과정명',t.trainingCourse||'-'],
+    ['교육 기간',`${t.startDate} ~ ${t.endDate}`],['교육비 결제액',won(c.trainingFee)],
+    ['결제주체',trainingPayers[t.trainingPayer]||t.trainingPayer||'-'],
+    ['본인 부담(청구 대상)',won(c.trainingClaim)],['예산과목',t.trainingBudget||'-']];
+  return `<section class="training-sheet"><h2>교육비 집행 내역 (여비 외 별도)</h2>
+    <table><tbody>${rows.map(([k,v])=>`<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</tbody></table>
+    <p class="training-note-print">위 교육비는 「여비 지급명세서」의 계(${won(c.total)})에 포함되지 않으며, 여비와 별도의 예산으로 집행합니다.${c.trainingClaim>0?'':' 본인 부담이 없어 청구 대상이 아니며 집행 사실을 기록한 것입니다.'}</p></section>`;
+}
 // 이미지는 data URL이라도 비동기로 그려집니다. 곧바로 print()를 부르면
 // 사진대지의 사진 자리가 빈 채로 인쇄됩니다. 다 그려질 때까지 기다립니다.
 function waitForImages(root, timeout = 8000) {
@@ -424,7 +472,7 @@ function lookupProof(t,v){
     `<h3>${esc(title)}</h3><table><tbody>${items.map(([k,val])=>`<tr><th>${esc(k)}</th><td>${esc(val)}</td></tr>`).join('')}</tbody></table>`
   ).join('')}${mapImage}<p class="proof-note">위 내용은 정산서 출력 시점에 저장된 조회 결과를 그대로 옮긴 것입니다.</p></section>`;
 }
-async function printTrip(t,v,c){const attachments=t.attachments||[], images=attachments.filter(a=>a.type.startsWith('image/')), documents=attachments.filter(a=>!a.type.startsWith('image/'));let report=$('#print-report');if(!report){report=document.createElement('section');report.id='print-report';report.className='print-report';document.body.append(report)}report.innerHTML=`${expenseSheet(t,v,c)}${lookupProof(t,v)}${images.length?`<section class="evidence-sheet"><div class="evidence-sheet-head"><h2>증빙자료 사진대지</h2><span>총 ${images.length}건</span></div><div class="photo-grid">${images.map(a=>`<figure class="photo-card"><div class="photo-frame"><img src="${attachmentUrl(a)}" alt="${esc(a.name)}"></div><figcaption><b>${esc(a.name)}</b><span>등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')}</span></figcaption></figure>`).join('')}</div></section>`:''}${documents.length?`<section class="document-proof"><h2>원본 파일 증빙</h2><p>아래 PDF 증빙은 사진대지와 함께 원본 파일로 보관됩니다.</p><ol>${documents.map(a=>`<li>${esc(a.name)} <span>(등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')})</span></li>`).join('')}</ol></section>`:''}`;await waitForImages(report);window.print()}
+async function printTrip(t,v,c){const attachments=t.attachments||[], images=attachments.filter(a=>a.type.startsWith('image/')), documents=attachments.filter(a=>!a.type.startsWith('image/'));let report=$('#print-report');if(!report){report=document.createElement('section');report.id='print-report';report.className='print-report';document.body.append(report)}report.innerHTML=`${expenseSheet(t,v,c)}${trainingSheet(t,c)}${lookupProof(t,v)}${images.length?`<section class="evidence-sheet"><div class="evidence-sheet-head"><h2>증빙자료 사진대지</h2><span>총 ${images.length}건</span></div><div class="photo-grid">${images.map(a=>`<figure class="photo-card"><div class="photo-frame"><img src="${attachmentUrl(a)}" alt="${esc(a.name)}"></div><figcaption><b>${esc(a.name)}</b><span>등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')}</span></figcaption></figure>`).join('')}</div></section>`:''}${documents.length?`<section class="document-proof"><h2>원본 파일 증빙</h2><p>아래 PDF 증빙은 사진대지와 함께 원본 파일로 보관됩니다.</p><ol>${documents.map(a=>`<li>${esc(a.name)} <span>(등록일 ${new Date(a.uploadedAt).toLocaleDateString('ko-KR')})</span></li>`).join('')}</ol></section>`:''}`;await waitForImages(report);window.print()}
 
 $('#nav').addEventListener('click',(e)=>{const b=e.target.closest('button[data-view]');if(b)setView(b.dataset.view)});
 // ?admin 으로 들어왔을 때만 메뉴에 관리자 항목을 붙이고 그 화면으로 시작합니다.
