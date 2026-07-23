@@ -61,10 +61,15 @@ async function region(url, origin, env) {
   if (!env.NAVER_MAP_CLIENT_ID || !env.NAVER_MAP_CLIENT_SECRET) return json({ error: '네이버 Maps 인증키가 설정되지 않았습니다.' }, 500, origin, env);
   try {
     const item = await geocode(query, env);
-    const sido = item.addressElements?.find((element) => element.types?.includes('SIDO'));
-    const name = sido?.longName || sido?.shortName || '';
+    const element = (type) => {
+      const found = item.addressElements?.find((x) => x.types?.includes(type));
+      return found?.longName || found?.shortName || '';
+    };
+    const name = element('SIDO');
     if (!name) throw new Error(`출발지의 시·도를 확인할 수 없습니다: ${query}`);
-    return json({ query, sido: name, address: item.roadAddress || item.jibunAddress || '' }, 200, origin, env);
+    // 유가는 시·군·구 평균이 시·도 평균보다 실제 주유 지점에 가깝습니다.
+    // 시·군·구를 못 얻어도 시·도만으로 조회가 되므로 여기서 실패시키지 않습니다.
+    return json({ query, sido: name, sigungu: element('SIGUGUN'), address: item.roadAddress || item.jibunAddress || '' }, 200, origin, env);
   } catch (error) { return json({ error: error.message || '출발지 지역 조회에 실패했습니다.' }, 502, origin, env); }
 }
 
@@ -159,32 +164,51 @@ async function opinet(url, origin, env) {
 
   try {
     const prodcd = productCode(fuel);
-    const area = url.searchParams.get('area') || '';
+    const sido = (url.searchParams.get('area') || '').slice(0, 2);
+    const sigunguName = url.searchParams.get('sigungu')?.trim() || '';
     const requestedDate = (url.searchParams.get('date') || '').replaceAll('-', '');
-    const areaCode = area.slice(0, 4);
+    // 시·군·구 코드는 시·도 통합 같은 개편으로 바뀝니다. 표로 굳히면 그때 조용히 틀리므로
+    // 오피넷이 지금 쓰는 코드를 그때그때 받아 이름으로 맞춥니다.
+    const sigungu = sido && sigunguName ? await sigunguArea(sido, sigunguName, env) : null;
     let match;
     let source = '';
     let notice = '';
+    let areaName = '';
 
-    if (requestedDate && areaCode) {
-      const params = { out: 'json', code: env.OPINET_API_KEY, area: areaCode, date: requestedDate };
-      if (fuel !== 'lpg') params.prodcd = ['hybrid','phev'].includes(fuel) ? 'B027' : prodcd;
-      const dated = new URL('https://www.opinet.co.kr/api/dateAreaAvgRecentPrice.do');
-      dated.search = new URLSearchParams(params).toString();
-      const items = oilList(await opinetJson(dated));
-      const accepted = fuel === 'lpg' ? ['K105', 'K015'] : [params.prodcd];
-      match = items.find((item) => String(item.DATE || '') === requestedDate && (!item.PRODCD || accepted.includes(item.PRODCD)) && (!item.AREA_CD || String(item.AREA_CD).startsWith(areaCode)));
-      if (match) source = '오피넷 해당일 지역 평균';
+    if (requestedDate && sigungu) {
+      match = await datedAverage(sigungu.code, requestedDate, fuel, prodcd, env);
+      if (match) { source = '오피넷 해당일 시·군·구 평균'; areaName = sigungu.name; }
+    }
+
+    if (!match && requestedDate && sido) {
+      match = await datedAverage(sido, requestedDate, fuel, prodcd, env);
+      if (match) {
+        source = '오피넷 해당일 시·도 평균';
+        areaName = String(match.AREA_NM || '');
+        if (sigungu) notice = `${sigungu.name}의 해당일 확정 유가가 없어 시·도 평균을 적용했습니다.`;
+      }
+    }
+
+    if (!match && sigungu) {
+      const current = new URL('https://www.opinet.co.kr/api/avgSigunPrice.do');
+      current.search = new URLSearchParams({ out: 'json', code: env.OPINET_API_KEY, sido, prodcd }).toString();
+      match = oilList(await opinetJson(current)).find((item) => String(item.SIGUNCD || '') === sigungu.code && (!item.PRODCD || item.PRODCD === prodcd));
+      if (match) {
+        source = '오피넷 현재 시·군·구 평균';
+        areaName = String(match.SIGUNNM || sigungu.name);
+        if (requestedDate) notice = '선택일의 확정 유가가 아직 없어 현재 시·군·구 평균을 적용했습니다.';
+      }
     }
 
     if (!match) {
       const current = new URL('https://www.opinet.co.kr/api/avgSidoPrice.do');
-      current.search = new URLSearchParams({ out: 'json', code: env.OPINET_API_KEY, sido: area.slice(0, 2), prodcd }).toString();
+      current.search = new URLSearchParams({ out: 'json', code: env.OPINET_API_KEY, sido, prodcd }).toString();
       let items = oilList(await opinetJson(current));
-      match = items.find((item) => (!item.PRODCD || item.PRODCD === prodcd) && (!area || String(item.SIDOCD || item.AREA_CD || '').startsWith(area.slice(0, 2))));
+      match = items.find((item) => (!item.PRODCD || item.PRODCD === prodcd) && (!sido || String(item.SIDOCD || item.AREA_CD || '').startsWith(sido)));
       if (match) {
-        source = area ? '오피넷 현재 시도 평균' : '오피넷 현재 전국 평균';
-        if (requestedDate) notice = '선택일의 확정 유가가 없어 현재 지역 평균을 적용했습니다.';
+        source = sido ? '오피넷 현재 시·도 평균' : '오피넷 현재 전국 평균';
+        areaName = String(match.SIDONM || match.AREA_NM || '');
+        if (requestedDate) notice = '선택일의 확정 유가가 아직 없어 현재 시·도 평균을 적용했습니다.';
       }
       if (!match) {
         const national = new URL('https://www.opinet.co.kr/api/avgAllPrice.do');
@@ -193,15 +217,53 @@ async function opinet(url, origin, env) {
         match = items.find((item) => item.PRODCD === prodcd);
         if (match) {
           source = '오피넷 현재 전국 평균';
+          areaName = '전국';
           if (requestedDate) notice = '선택일의 지역 확정 유가가 없어 현재 전국 평균을 적용했습니다.';
         }
       }
     }
     if (!match || !Number(match.PRICE)) throw new Error('오피넷이 가격 데이터를 반환하지 않았습니다. 인증키와 서비스 권한을 확인해 주세요.');
-    return json({ price: Number(match.PRICE), tradeDate: match.DATE || match.TRADE_DT || new Date().toISOString().slice(0, 10).replaceAll('-', ''), source, areaCode: match.SIDOCD || match.AREA_CD || area, productCode: match.PRODCD || prodcd, notice }, 200, origin, env);
+    return json({ price: Number(match.PRICE), tradeDate: match.DATE || match.TRADE_DT || new Date().toISOString().slice(0, 10).replaceAll('-', ''), source, areaCode: match.SIGUNCD || match.AREA_CD || match.SIDOCD || sido, areaName, productCode: match.PRODCD || prodcd, notice }, 200, origin, env);
   } catch (error) {
     return json({ error: error.message || '오피넷 조회에 실패했습니다.' }, 502, origin, env);
   }
+}
+
+// 해당일 지역 평균 한 건. 응답은 최근 며칠치가 함께 오므로 요청한 날짜만 골라냅니다.
+async function datedAverage(area, requestedDate, fuel, prodcd, env) {
+  const params = { out: 'json', code: env.OPINET_API_KEY, area, date: requestedDate };
+  if (fuel !== 'lpg') params.prodcd = ['hybrid', 'phev'].includes(fuel) ? 'B027' : prodcd;
+  const dated = new URL('https://www.opinet.co.kr/api/dateAreaAvgRecentPrice.do');
+  dated.search = new URLSearchParams(params).toString();
+  const items = oilList(await opinetJson(dated));
+  const accepted = fuel === 'lpg' ? ['K105', 'K015'] : [params.prodcd];
+  return items.find((item) => String(item.DATE || '') === requestedDate && (!item.PRODCD || accepted.includes(item.PRODCD)) && (!item.AREA_CD || String(item.AREA_CD) === String(area))) || null;
+}
+
+// 지오코딩이 준 시·군·구 이름을 오피넷 지역코드로 옮깁니다. 실패하면 null을 돌려
+// 호출부가 시·도 평균으로 내려가게 합니다. 유가 조회 자체를 막을 일은 아닙니다.
+async function sigunguArea(sido, name, env) {
+  try {
+    const url = new URL('https://www.opinet.co.kr/api/areaCode.do');
+    url.search = new URLSearchParams({ out: 'json', code: env.OPINET_API_KEY, area: sido }).toString();
+    return matchArea(oilList(await opinetJson(url)), name);
+  } catch { return null; }
+}
+
+// 오피넷에 구 단위가 없는 곳이 있습니다("성남시 분당구" → 오피넷은 "성남시"까지).
+// 정확히 같은 이름을 먼저 찾고, 없으면 가장 길게 겹치는 이름을 씁니다.
+export function matchArea(list, name) {
+  const target = String(name || '').replace(/\s+/g, '');
+  if (!target) return null;
+  let best = null;
+  for (const item of list) {
+    const areaName = String(item.AREA_NM || '').replace(/\s+/g, '');
+    const code = String(item.AREA_CD || '');
+    if (!areaName || !code) continue;
+    if (areaName === target) return { code, name: areaName };
+    if (target.startsWith(areaName) && (!best || areaName.length > best.name.length)) best = { code, name: areaName };
+  }
+  return best;
 }
 
 // 하이브리드와 플러그인하이브리드는 휘발유 가격을 씁니다.
