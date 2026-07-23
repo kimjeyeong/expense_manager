@@ -49,6 +49,15 @@ button,input,select,textarea{font:inherit} button{cursor:pointer}.app-shell{disp
   .print-report .lookup-proof th,.print-report .lookup-proof td{border:1px solid #999;padding:2mm 3mm}
   .print-report .proof-note{margin-top:6mm;font-size:9px;color:#555}
 }
+/* 거리·단가 조회 버튼: 안 누르면 값이 안 채워지는데 흰 버튼이라 잘 안 보였습니다.
+   총괄 PDF 출력(btn-primary)과 겹치지 않도록 채움 대신 파란 색조로 눈에 띄게 합니다. */
+/* 테두리는 흰 패널 대비 3:1을 넘겨야 버튼 윤곽이 윤곽으로 읽힙니다(WCAG 1.4.11). */
+.btn-lookup{background:var(--sky);border-color:#4a90d9;color:var(--blue);font-weight:700}
+.btn-lookup:hover{background:#d9e9fc;border-color:#2f76c0}
+.btn-lookup:active{background:#c9ddf7}
+.btn-lookup span{font-size:15px;line-height:1}
+.btn-wide{width:100%}
+
 /* 교육 출장: 체크박스 한 줄과 여비와 분리해 보여 주는 교육비 요약 */
 .field.check label{display:flex;align-items:center;gap:8px;margin-bottom:0;font-size:13px}
 .field.check input{width:16px;height:16px;flex:none;padding:0}
