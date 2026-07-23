@@ -169,61 +169,114 @@ async function fetchNaverDistance(settings, query) {
   return { origin, destination, oneWayMeters: distance, oneWayKm: Number((distance / 1000).toFixed(1)), roundTripKm: Number((distance / 500).toFixed(1)) };
 }
 
+// 오피넷에 구 단위가 없는 곳이 있습니다("성남시 분당구" → 오피넷은 "성남시"까지).
+// 정확히 같은 이름을 먼저 찾고, 없으면 가장 길게 겹치는 이름을 씁니다.
+function matchArea(list, name) {
+  const target = String(name || '').replace(/\s+/g, '');
+  if (!target) return null;
+  let best = null;
+  for (const item of list) {
+    const areaName = String(item.AREA_NM || '').replace(/\s+/g, '');
+    const code = String(item.AREA_CD || '');
+    if (!areaName || !code) continue;
+    if (areaName === target) return { code, name: areaName };
+    if (target.startsWith(areaName) && (!best || areaName.length > best.name.length)) best = { code, name: areaName };
+  }
+  return best;
+}
+
+async function opinetJson(url, label) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!response.ok) throw new Error(`${label} 응답 오류(${response.status})`);
+  return normalizeOilList(await response.json());
+}
+
+// 해당일 지역 평균 한 건. 응답은 최근 며칠치가 함께 오므로 요청한 날짜만 골라냅니다.
+async function datedAverage(settings, area, requestedDate, fuel) {
+  const dailyProdcd = dailyAreaProductCode(fuel);
+  const params = { out: 'json', code: settings.opinetKey, area, date: requestedDate };
+  // The guide lists K105 for regional daily LPG, while the live API can return K015.
+  // Omitting the optional product filter for LPG lets us accept either response code.
+  if (fuel !== 'lpg') params.prodcd = dailyProdcd;
+  const url = new URL('https://www.opinet.co.kr/api/dateAreaAvgRecentPrice.do');
+  url.search = new URLSearchParams(params).toString();
+  const items = await opinetJson(url, '오피넷 일자별 지역 유가');
+  const accepted = fuel === 'lpg' ? ['K105', 'K015'] : [dailyProdcd];
+  return items.find((item) =>
+    String(item.DATE || '') === requestedDate &&
+    (!item.PRODCD || accepted.includes(item.PRODCD)) &&
+    (!item.AREA_CD || String(item.AREA_CD) === String(area))
+  ) || null;
+}
+
+// 시·군·구 코드는 시·도 통합 같은 개편으로 바뀝니다. 표로 굳히면 그때 조용히 틀리므로
+// 오피넷이 지금 쓰는 코드를 그때그때 받아 이름으로 맞춥니다.
+async function sigunguArea(settings, sido, name) {
+  try {
+    const url = new URL('https://www.opinet.co.kr/api/areaCode.do');
+    url.search = new URLSearchParams({ out: 'json', code: settings.opinetKey, area: sido }).toString();
+    return matchArea(await opinetJson(url, '오피넷 지역코드'), name);
+  } catch { return null; }
+}
+
 async function fetchOpinet(settings, query) {
   if (!settings.opinetKey) throw new Error('오피넷 인증키가 설정되지 않았습니다. data/store.json의 opinetKey를 확인해 주세요.');
   if (['electric', 'hydrogen'].includes(query.get('fuel'))) throw new Error('전기·수소 단가는 오피넷 대상이 아닙니다. 실제 충전단가를 직접 입력해 주세요.');
   const fuel = query.get('fuel');
   const prodcd = productCode(fuel);
-  const area = query.get('area') || '';
+  const sido = (query.get('area') || '').slice(0, 2);
+  const sigunguName = (query.get('sigungu') || '').trim();
   const requestedDate = (query.get('date') || '').replaceAll('-', '');
-  const areaCode = area.slice(0, 4);
+  const sigungu = sido && sigunguName ? await sigunguArea(settings, sido, sigunguName) : null;
   let match;
   let source;
   let notice = '';
+  let areaName = '';
 
-  if (requestedDate && areaCode) {
-    const dailyProdcd = dailyAreaProductCode(fuel);
-    const datedUrl = new URL('https://www.opinet.co.kr/api/dateAreaAvgRecentPrice.do');
-    const datedParams = { out: 'json', code: settings.opinetKey, area: areaCode, date: requestedDate };
-    // The guide lists K105 for regional daily LPG, while the live API can return K015.
-    // Omitting the optional product filter for LPG lets us accept either response code.
-    if (fuel !== 'lpg') datedParams.prodcd = dailyProdcd;
-    datedUrl.search = new URLSearchParams(datedParams).toString();
-    const datedResponse = await fetch(datedUrl, { signal: AbortSignal.timeout(10000) });
-    if (!datedResponse.ok) throw new Error(`오피넷 일자별 지역 유가 응답 오류(${datedResponse.status})`);
-    const datedItems = normalizeOilList(await datedResponse.json());
-    const acceptedProductCodes = fuel === 'lpg' ? ['K105', 'K015'] : [dailyProdcd];
-    match = datedItems.find((item) =>
-      String(item.DATE || '') === requestedDate &&
-      (!item.PRODCD || acceptedProductCodes.includes(item.PRODCD)) &&
-      (!item.AREA_CD || String(item.AREA_CD).startsWith(areaCode))
-    );
-    if (match) source = '오피넷 해당일자 지역 평균';
+  if (requestedDate && sigungu) {
+    match = await datedAverage(settings, sigungu.code, requestedDate, fuel);
+    if (match) { source = '오피넷 해당일 시·군·구 평균'; areaName = sigungu.name; }
+  }
+
+  if (!match && requestedDate && sido) {
+    match = await datedAverage(settings, sido, requestedDate, fuel);
+    if (match) {
+      source = '오피넷 해당일 시·도 평균';
+      areaName = String(match.AREA_NM || '');
+      if (sigungu) notice = `${sigungu.name}의 해당일 확정 유가가 없어 시·도 평균을 적용했습니다.`;
+    }
+  }
+
+  if (!match && sigungu) {
+    const url = new URL('https://www.opinet.co.kr/api/avgSigunPrice.do');
+    url.search = new URLSearchParams({ out: 'json', code: settings.opinetKey, sido, prodcd }).toString();
+    match = (await opinetJson(url, '오피넷 시군구 평균')).find((x) => String(x.SIGUNCD || '') === sigungu.code && (!x.PRODCD || x.PRODCD === prodcd));
+    if (match) {
+      source = '오피넷 현재 시·군·구 평균';
+      areaName = String(match.SIGUNNM || sigungu.name);
+      if (requestedDate) notice = '선택일자의 확정 유가가 아직 없어 현재 시·군·구 평균을 적용했습니다.';
+    }
   }
 
   if (!match) {
     const currentUrl = new URL('https://www.opinet.co.kr/api/avgSidoPrice.do');
-    currentUrl.search = new URLSearchParams({ out: 'json', code: settings.opinetKey, sido: area.slice(0, 2), prodcd }).toString();
-    let response = await fetch(currentUrl, { signal: AbortSignal.timeout(10000) });
-    if (!response.ok) throw new Error(`오피넷 응답 오류(${response.status})`);
-    let payload = await response.json();
-    let items = normalizeOilList(payload);
-    match = items.find((x) => (!x.PRODCD || x.PRODCD === prodcd) && (!area || String(x.SIDOCD || x.AREA_CD || '').startsWith(area.slice(0, 2))));
+    currentUrl.search = new URLSearchParams({ out: 'json', code: settings.opinetKey, sido, prodcd }).toString();
+    let items = await opinetJson(currentUrl, '오피넷');
+    match = items.find((x) => (!x.PRODCD || x.PRODCD === prodcd) && (!sido || String(x.SIDOCD || x.AREA_CD || '').startsWith(sido)));
     if (match) {
-      source = area ? '오피넷 현재 시도 평균' : '오피넷 현재 전국 평균';
-      if (requestedDate) notice = '선택일자의 확정 유가가 아직 없어 현재 지역 평균을 적용했습니다.';
+      source = sido ? '오피넷 현재 시·도 평균' : '오피넷 현재 전국 평균';
+      areaName = String(match.SIDONM || match.AREA_NM || '');
+      if (requestedDate) notice = '선택일자의 확정 유가가 아직 없어 현재 시·도 평균을 적용했습니다.';
     }
 
     if (!match) {
       const nationalUrl = new URL('https://www.opinet.co.kr/api/avgAllPrice.do');
       nationalUrl.search = new URLSearchParams({ out: 'json', code: settings.opinetKey }).toString();
-      response = await fetch(nationalUrl, { signal: AbortSignal.timeout(10000) });
-      if (!response.ok) throw new Error(`오피넷 전국평균 응답 오류(${response.status})`);
-      payload = await response.json();
-      items = normalizeOilList(payload);
+      items = await opinetJson(nationalUrl, '오피넷 전국평균');
       match = items.find((x) => x.PRODCD === prodcd);
       if (match) {
         source = '오피넷 현재 전국 평균';
+        areaName = '전국';
         if (requestedDate) notice = '선택일자의 지역 확정 유가가 없어 현재 전국 평균을 적용했습니다.';
       }
     }
@@ -233,7 +286,8 @@ async function fetchOpinet(settings, query) {
     price: Number(match.PRICE),
     tradeDate: match.DATE || match.TRADE_DT || new Date().toISOString().slice(0, 10).replaceAll('-', ''),
     source,
-    areaCode: match.SIDOCD || match.AREA_CD || area,
+    areaCode: match.SIGUNCD || match.AREA_CD || match.SIDOCD || sido,
+    areaName,
     productCode: match.PRODCD || prodcd,
     notice
   };
@@ -357,4 +411,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, productCode, dailyAreaProductCode, normalizeOilList, fetchNaverDistance };
+module.exports = { server, productCode, dailyAreaProductCode, normalizeOilList, fetchNaverDistance, matchArea };
