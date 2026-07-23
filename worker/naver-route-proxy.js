@@ -83,12 +83,13 @@ async function staticMap(url, origin, env) {
   if (!env.NAVER_MAP_CLIENT_ID || !env.NAVER_MAP_CLIENT_SECRET) return json({ error: '네이버 Maps 인증키가 설정되지 않았습니다.' }, 500, origin, env);
   try {
     const [start, goal] = await Promise.all([geocode(from, env), geocode(to, env)]);
-    const ax = Number(start.x), ay = Number(start.y), bx = Number(goal.x), by = Number(goal.y);
+    const width = 700, height = 420;
+    const view = mapView(start, goal, width, height);
     const map = new URL('https://maps.apigw.ntruss.com/map-static/v2/raster');
-    map.searchParams.set('center', `${(ax + bx) / 2},${(ay + by) / 2}`);
-    map.searchParams.set('level', String(zoomFor(Math.max(Math.abs(ax - bx), Math.abs(ay - by)))));
-    map.searchParams.set('w', '700');
-    map.searchParams.set('h', '420');
+    map.searchParams.set('center', view.center);
+    map.searchParams.set('level', String(view.level));
+    map.searchParams.set('w', String(width));
+    map.searchParams.set('h', String(height));
     map.searchParams.set('format', 'jpg');
     map.searchParams.set('lang', 'ko');
     map.searchParams.append('markers', `type:d|size:mid|color:blue|pos:${ax} ${ay}`);
@@ -102,11 +103,31 @@ async function staticMap(url, origin, env) {
   } catch (error) { return json({ error: error.message || '지도 이미지 조회에 실패했습니다.' }, 502, origin, env); }
 }
 
-// 두 지점의 경도·위도 차이가 클수록 더 넓게 봅니다.
-function zoomFor(span) {
-  const steps = [[3, 6], [1.5, 7], [0.7, 8], [0.35, 9], [0.15, 10], [0.07, 11], [0.03, 12]];
-  for (const [limit, level] of steps) if (span > limit) return level;
-  return 13;
+// 마커 핀은 좌표점이 뾰족한 아래 끝이고 그림은 위로 뻗습니다(실측 가로 38px·세로 49px).
+// 좌표점이 화면 안에 있어도 가장자리에 붙으면 핀 머리가 잘리므로 미리 자리를 비워 둡니다.
+const MARKER_WIDTH = 44;
+const MARKER_HEIGHT = 56;
+const TILE = 256;
+// 네이버 static map의 level은 표준 타일 줌보다 1 작습니다. 배포본 실측으로 확인했습니다:
+// level 7에서 위도 1도가 약 224px(줌 8), level 10에서 경도 1도가 약 1452px(줌 11).
+const LEVEL_OFFSET = 1;
+
+function mercatorY(lat) { return Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2)); }
+
+// 두 지점이 핀까지 온전히 들어가는 가장 가까운 배율과 중심을 고릅니다.
+function mapView(start, goal, width, height) {
+  const ax = Number(start.x), ay = Number(start.y), bx = Number(goal.x), by = Number(goal.y);
+  // 두 마커는 중심을 사이에 두고 마주 놓이므로, 위아래·좌우로 같은 여백을 잡습니다.
+  const spanX = Math.max(1, width - MARKER_WIDTH);
+  const spanY = Math.max(1, height - 2 * MARKER_HEIGHT);
+  const lngGap = Math.abs(ax - bx) / 360;
+  const latGap = Math.abs(mercatorY(ay) - mercatorY(by)) / (2 * Math.PI);
+  const world = Math.min(lngGap > 0 ? spanX / lngGap : Infinity, latGap > 0 ? spanY / latGap : Infinity);
+  // 출발지와 도착지가 같으면 배율을 정할 수 없으므로 가장 가까이 본 값으로 둡니다.
+  const zoom = Number.isFinite(world) ? Math.floor(Math.log2(world / TILE)) : 20;
+  // 세로 중심은 위도 평균이 아니라 투영 좌표의 중간이어야 두 마커가 중앙에 대칭으로 놓입니다.
+  const centerLat = Math.atan(Math.sinh((mercatorY(ay) + mercatorY(by)) / 2)) * 180 / Math.PI;
+  return { level: Math.max(1, Math.min(14, zoom - LEVEL_OFFSET)), center: `${(ax + bx) / 2},${centerLat}` };
 }
 
 // 큰 배열을 한 번에 펼치면 스택이 넘치므로 나눠서 인코딩합니다.
